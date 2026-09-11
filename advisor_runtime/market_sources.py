@@ -140,21 +140,33 @@ def _cache_write(name: str, payload: Any) -> None:
     )
 
 
-def _write_sports_game_odds_snapshot(payload: Any, fetched_at_utc: str) -> dict[str, Any]:
-    """Preserve raw posted lines before player selection or book filtering.
+def _write_sports_game_odds_snapshot(
+    payload: Any,
+    fetched_at_utc: str,
+    players: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Preserve raw posted lines and matching projections before selection.
 
     The caller supplies the engine's HTTP fetch time, never a feed timestamp.
     Each fetch creates a new file exclusively; history is never replaced/pruned.
+    Both sides of a posted line are kept as separate rows (an explicit ``side``
+    field), each carrying its own price, so a later reader can tell a line
+    move from a juice move. Side/book selection for the decision packet stays
+    a read-time job in ``sports_game_odds`` below; this only stops discarding
+    the under side and the price at write time. ``row_type`` distinguishes the
+    two row shapes sharing this file: "line" (book-posted) and "projection"
+    (the engine's own value for that player at the same fetch).
     """
-    rows: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    rows: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     for event in payload.get("data") or []:
         event_id = str(event.get("eventID") or "")
         for odd in (event.get("odds") or {}).values():
             market = SPORTS_GAME_ODDS_STATS.get(str(odd.get("statID") or ""))
+            side = str(odd.get("sideID") or "")
             if (
                 odd.get("periodID") != "game"
                 or odd.get("betTypeID") != "ou"
-                or odd.get("sideID") != "over"
+                or not side
                 or not odd.get("playerID")
                 or not market
             ):
@@ -164,28 +176,50 @@ def _write_sports_game_odds_snapshot(payload: Any, fetched_at_utc: str) -> dict[
                 line = _number(raw.get("overUnder"))
                 if raw.get("available") is False or line is None:
                     continue
-                key = (event_id, player_id, str(book), market)
+                key = (event_id, player_id, str(book), market, side)
                 rows[key] = {
+                    "row_type": "line",
                     "source": "SportsGameOdds",
                     "event_id": event_id,
                     "player_id": player_id,
                     "book": str(book),
                     "market": market,
+                    "side": side,
                     "line": line,
+                    "price": _number(raw.get("odds")),
                     "fetched_at_utc": fetched_at_utc,
                 }
+    projection_rows = []
+    for player in players or []:
+        stats = player.get("live_projection_stats")
+        projection_rows.append(
+            {
+                "row_type": "projection",
+                "source": "engine_projection",
+                "player_id": str(player.get("pid") or ""),
+                "player_name": str(player.get("name") or ""),
+                "week": player.get("current_week"),
+                "points": _number(player.get("live_week_projection")),
+                "stats": dict(stats) if isinstance(stats, dict) else {},
+                "fetched_at_utc": fetched_at_utc,
+            }
+        )
     MARKET_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
     stamp = fetched_at_utc.replace(":", "").replace("+0000", "Z")
     path = MARKET_HISTORY_DIR / f"{stamp}-{uuid.uuid4().hex}.jsonl"
     with path.open("x", encoding="utf-8", newline="\n") as handle:
         for row in rows.values():
             handle.write(json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n")
+        for row in projection_rows:
+            handle.write(json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
     return {
         "status": "written",
         "path": str(path),
-        "rows": len(rows),
+        "rows": len(rows) + len(projection_rows),
+        "line_rows": len(rows),
+        "projection_rows": len(projection_rows),
         "fetched_at_utc": fetched_at_utc,
     }
 
@@ -256,7 +290,12 @@ def _book_summary(books: list[dict[str, Any]], source: str) -> dict[str, Any]:
     }
 
 
-def sports_game_odds(players: list[dict[str, Any]], *, force_refresh: bool = False) -> dict[str, Any]:
+def sports_game_odds(
+    players: list[dict[str, Any]],
+    *,
+    force_refresh: bool = False,
+    projection_universe: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     secrets = load_secrets()
     api_key = secrets.get("SPORTSGAMEODDS_API_KEY")
     if not api_key:
@@ -296,7 +335,11 @@ def sports_game_odds(players: list[dict[str, Any]], *, force_refresh: bool = Fal
                 "players": {},
             }
         fetched_at_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
-        line_snapshot = _write_sports_game_odds_snapshot(payload, fetched_at_utc)
+        line_snapshot = _write_sports_game_odds_snapshot(
+            payload,
+            fetched_at_utc,
+            players if projection_universe is None else projection_universe,
+        )
         _cache_write("sportsgameodds_nfl_props.json", payload)
 
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -615,9 +658,15 @@ def underdog(players: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def focused_market_packet(
-    players: list[dict[str, Any]], deep: bool = False, *, force_refresh: bool = False
+    players: list[dict[str, Any]],
+    deep: bool = False,
+    *,
+    force_refresh: bool = False,
+    projection_universe: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    primary = sports_game_odds(players, force_refresh=force_refresh)
+    primary = sports_game_odds(
+        players, force_refresh=force_refresh, projection_universe=projection_universe
+    )
     validator = the_odds_api(players, enabled=deep)
     by_player: dict[str, Any] = {}
     for player in players:

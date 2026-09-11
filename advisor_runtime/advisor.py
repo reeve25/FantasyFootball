@@ -2043,7 +2043,11 @@ def build_packet(
     }
 
     if include_market and focus:
-        market = focused_market_packet(focus, deep=deep)
+        market = focused_market_packet(
+            focus,
+            deep=deep,
+            projection_universe=list((current.get("players") or {}).values()),
+        )
         packet["market_evidence"] = market
         if (
             market.get("source_status", {}).get("sports_game_odds")
