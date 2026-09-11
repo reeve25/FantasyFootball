@@ -83,6 +83,10 @@ Verify any performance patch by diffing against the unpatched path.
 - The Cowork VM cannot run the engine. scipy is absent and PyPI is blocked by
   egress policy, so anything importing ff_v6_3 fails at `from scipy.stats
   import poisson`. Only `status` runs there.
+  SUPERSEDED 2026-09-11 23:00 UTC: both halves of this are now false in the
+  VM. `pip install scipy` succeeds (1.15.3) and api.sleeper.app returns 200,
+  so selftest (38+30) and a live-roster `trade` both run there. Egress is not
+  stable across sessions — re-test rather than assuming either state.
 - `--market` is a silent no-op on `lineup`, `rankings`, `movers` and
   `transactions`. ff.py builds those from a canned question string, and the
   market block runs `match_players(question, current)` — the canned strings

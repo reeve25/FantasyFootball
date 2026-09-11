@@ -94,3 +94,47 @@ identical to the optimizer's lineup, so no lineup change was indicated.
 Known subtotal 122.72 over 8 of 10 slots; Jake Bates and Jacksonville DEF
 carry no projection (missing, not zero), so projected_total is null.
 Nothing about this run establishes current injury status.
+
+## 2026-09-11 — Cowork VM can now run the engine (23:00 UTC)
+
+Contradicts the two environment traps recorded earlier today. Observed from
+device_bash in the Cowork VM, this session:
+
+- `api.sleeper.app` returns 200. League, rosters, users, `players/nfl`
+  (12,227 entries) and `state/nfl` all fetched directly.
+- PyPI is reachable: `pip install scipy` succeeded (scipy 1.15.3), which was
+  the single blocker on importing `advisor_runtime.engine.ff_v6_3`.
+- `ff.py selftest` passes 38 + 30 in the VM.
+- `ff.py trade` completed in ~3.8s with `rosters.status = fresh`,
+  live_refreshed_at 2026-09-11T23:01:27Z — the engine pulled live league
+  ownership itself, so roster reads no longer need a manual cross-check here.
+
+Unchanged: market providers still read false from the VM (`sports_game_odds`,
+`the_odds_api`, `bettingpros`, `fantasypros`) because the keys live outside the
+repo at %USERPROFILE%\.codex\secrets\. Market data remains PowerShell-only.
+
+Projection snapshot used: generated 18:27 UTC, 274 min old; Sleeper feed
+18:06 UTC and ESPN 18:07 UTC, both inside the 720-minute bar. No refresh run.
+
+## 2026-09-11 — Walker / London trade evaluation (23:00 UTC)
+
+Reeve asked whether to trade Drake London for Kenneth Walker III straight up,
+and whether David Montgomery for Rome Odunze works alongside it. Counterparty
+for both is roster 1, Pukkake Gang (baran222), who holds Walker and Odunze.
+
+Engine results, blended basis, effective week 2, E[best8] pts/gm:
+
+- London -> Walker: me -0.07, them -5.94. Sources straddle zero
+  (ESPN +0.26, Sleeper -0.40). Dead even for me, large loss for them.
+- Montgomery -> Odunze: me -1.31, them +1.68. Wrong direction.
+- London + Montgomery -> Walker + Odunze: me -0.99, them +1.14.
+- Montgomery -> Walker: me +2.73, them -2.62. Positive on all three
+  sources (ESPN +4.19, Sleeper +1.16). Playoff weeks +3.33.
+- Javonte Williams -> Walker: me +0.91, them -0.86. Positive on all three.
+  The most acceptable shape found.
+- Etienne -> Walker: me +1.76, them -1.65.
+
+No offer sent. Nothing here is a negotiation in progress; Reeve has not
+contacted baran222. Player status per the Sleeper API only, at Reeve's
+direction for this evaluation: Odunze Questionable (leg); Walker, London and
+Montgomery all Active with no designation. No reporting was used.
