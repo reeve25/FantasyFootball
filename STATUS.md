@@ -46,7 +46,14 @@ Normal advice: read BRIEF.md, run one focused ff.py operation, research only
 material current facts, answer briefly. No code work unless maintenance is
 requested. Store material new negotiations here with dates and sources.
 
-## 2026-09-11 — Cowork execution blocked
+## 2026-09-11 — Verified from local PowerShell
+
+Engine verified by running it from local PowerShell against this folder:
+
+- selftest: 29 + 28 pass.
+- lineup: all 10 slots returned in ~2s.
+- packet --market: live SportsGameOdds props returned in 3.9s.
+- Evidence writes to outputs/ as expected.
 
 Cowork's local sandbox is blocked by Windows KB5124008: device_bash cannot
 mount host shares, so Cowork has no execution path to this folder. Its file
@@ -54,13 +61,9 @@ bridge still works — staging, listing and writing files are unaffected. Codex
 or local PowerShell is the execution path until this clears.
 
 docs/TRAPS.md was written this session through that file bridge, porting the
-trap list from prior sessions. It is uncommitted by request; commit it from
-Codex alongside the untracked USER_GUIDE.md.
+trap list from prior sessions. The anchor-curve floor asked for in that port
+needed no change: perceived_cap() already floors at zero and a selftest guards
+it.
 
-Working tree after this entry: HEAD 3eda04e, STATUS.md modified, docs/TRAPS.md
-and USER_GUIDE.md untracked, no other tracked file modified.
-
-Unresolved: `ff.py status` and `ff.py lineup` were not run this session, and
-were deliberately not run on a staged copy. The 10-slot lineup check is still
-outstanding on this revision. The anchor-curve floor needed no change —
-perceived_cap() already floors at zero and a selftest guards it.
+docs/TRAPS.md and USER_GUIDE.md are committed at 4006853; the Cowork status
+entry at 3fcc0a1.
