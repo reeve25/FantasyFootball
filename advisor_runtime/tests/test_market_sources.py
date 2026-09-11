@@ -21,6 +21,82 @@ from test_advisor_v2 import fixture_live_context, fixture_snapshot  # noqa: E402
 
 
 class MarketLabelTests(unittest.TestCase):
+    def _provider_summary(self, lines, fair_line, stat="receiving_yards"):
+        payload = {
+            "data": [{
+                "players": {"player": {"name": "Test Player"}},
+                "odds": {"prop": {
+                    "periodID": "game",
+                    "betTypeID": "ou",
+                    "sideID": "over",
+                    "playerID": "player",
+                    "statID": stat,
+                    "fairOverUnder": fair_line,
+                    "byBookmaker": {
+                        f"book-{index}": {"overUnder": line}
+                        for index, line in enumerate(lines)
+                    },
+                }},
+            }],
+        }
+        with (
+            mock.patch.object(market_sources, "load_secrets", return_value={
+                "SPORTSGAMEODDS_API_KEY": "fixture",
+            }),
+            mock.patch.object(market_sources, "_cache_read", return_value=payload),
+            mock.patch.object(market_sources.requests, "get", side_effect=AssertionError(
+                "market regression tests must not use network"
+            )),
+        ):
+            result = market_sources.sports_game_odds([{"name": "Test Player"}])
+        return result["players"]["test player"][market_sources.SPORTS_GAME_ODDS_STATS[stat]]
+
+    def test_provider_fair_line_requires_inclusive_book_range_at_any_book_count(self):
+        for lines in ([60.5], [58.5, 59.5, 60.5], [58.5, 59.5, 59.5, 60.5]):
+            low, high = min(lines), max(lines)
+            for fair_line, accepted in (
+                (low - 0.001, False),
+                (low, True),
+                ((low + high) / 2, True),
+                (high, True),
+                (high + 0.001, False),
+            ):
+                with self.subTest(lines=lines, fair_line=fair_line):
+                    summary = self._provider_summary(lines, fair_line)
+                    self.assertEqual(summary["range"], [low, high])
+                    self.assertEqual(summary["book_count"], len(lines))
+                    self.assertEqual(summary["fair_line"], fair_line)
+                    self.assertEqual(summary["consensus_line"], summary["book_consensus_line"])
+                    self.assertEqual(
+                        summary["projection_line"],
+                        fair_line if accepted else summary["consensus_line"],
+                    )
+                    self.assertEqual(
+                        summary["projection_line_method"],
+                        "provider_fair_line_within_book_range" if accepted else
+                        "robust_book_median; provider_fair_line_rejected",
+                    )
+
+    def test_above_book_fair_lines_from_september_11_use_book_median(self):
+        cases = (
+            ("London 18:04", "receiving_yards", [58.5, 61.5, 59.5], 63.5, 59.5),
+            ("London 18:21", "receiving_yards", [58.5, 61.5, 59.5, 58.5], 64.5, 59.0),
+            ("Lawrence 18:21", "passing_yards", [232.5, 236.5, 234.5, 239.5], 245.0, 235.5),
+        )
+        for observation, stat, lines, fair_line, median in cases:
+            for ordered_lines in (lines, list(reversed(lines))):
+                with self.subTest(observation=observation, lines=ordered_lines):
+                    summary = self._provider_summary(ordered_lines, fair_line, stat)
+                    self.assertEqual(summary["range"], [min(lines), max(lines)])
+                    self.assertEqual(summary["book_count"], len(lines))
+                    self.assertEqual(summary["excluded_outliers"], [])
+                    self.assertEqual(summary["consensus_line"], median)
+                    self.assertEqual(summary["projection_line"], median)
+                    self.assertEqual(
+                        summary["projection_line_method"],
+                        "robust_book_median; provider_fair_line_rejected",
+                    )
+
     def test_projection_oracle_cannot_enable_legacy_market_paths(self):
         engine = advisor.load_engine(quick=False)
         self.assertTrue(engine.QUICK)

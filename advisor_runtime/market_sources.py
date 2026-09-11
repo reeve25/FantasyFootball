@@ -311,21 +311,15 @@ def sports_game_odds(players: list[dict[str, Any]]) -> dict[str, Any]:
             consensus = _number(summary.get("consensus_line"))
             line_range = summary.get("range")
             if fair_line is not None and consensus is not None and line_range:
-                tolerance = max(0.5, abs(consensus) * 0.05)
-                if (
-                    float(line_range[0]) - tolerance
-                    <= fair_line
-                    <= float(line_range[1]) + tolerance
-                ):
+                if float(line_range[0]) <= fair_line <= float(line_range[1]):
                     # Keep ``consensus_line`` equal to the observable median
                     # shown in ``books`` and ``range``.  A provider's
                     # price-adjusted fair line can still be the projection
-                    # input, but it must be labeled separately so the packet
-                    # never says that every listed book is 4.5 while calling
-                    # the book consensus 5.0.
+                    # input only within the posted book range. Label it
+                    # separately from the observable book consensus.
                     summary["projection_line"] = fair_line
                     summary["projection_line_method"] = (
-                        "provider_fair_line_within_book_range_tolerance"
+                        "provider_fair_line_within_book_range"
                     )
                 else:
                     summary["projection_line"] = consensus
