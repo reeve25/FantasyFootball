@@ -86,6 +86,53 @@ def iso_now() -> str:
     return utc_now().isoformat(timespec="seconds")
 
 
+def _timestamp(value: Any) -> dt.datetime | None:
+    try:
+        if isinstance(value, (int, float)):
+            stamp = float(value)
+            return dt.datetime.fromtimestamp(stamp / 1000 if stamp > 1e11 else stamp, dt.timezone.utc)
+        stamp = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return stamp.replace(tzinfo=dt.timezone.utc) if stamp.tzinfo is None else stamp
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _age_minutes(value: Any) -> float | None:
+    stamp = _timestamp(value)
+    return round(max(0.0, (utc_now() - stamp).total_seconds() / 60), 1) if stamp else None
+
+
+def evidence_freshness(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """A new packet or snapshot never refreshes the underlying observations."""
+    timestamps = (snapshot.get("engine") or {}).get("source_cache_fetched_at_utc") or {}
+    sources = {}
+    max_age = float(CONFIG.get("projection_max_age_minutes", 720))
+    for name in ("sleeper_projection_feed", "espn"):
+        age = _age_minutes(timestamps.get(name))
+        sources[name] = {"fetched_at_utc": timestamps.get(name), "age_minutes": age,
+                         "status": "unknown" if age is None else "fresh" if age <= max_age else "stale"}
+    roster_stamp = (snapshot.get("league") or {}).get("live_refreshed_at_utc")
+    roster_age = _age_minutes(roster_stamp)
+    roster_status = "unverified" if roster_age is None else "fresh" if roster_age <= float(CONFIG.get("roster_max_age_minutes", 5)) else "stale"
+    return {"projection_sources": sources, "projection_max_age_minutes": max_age,
+            "rosters": {"fetched_at_utc": roster_stamp, "age_minutes": roster_age, "status": roster_status},
+            "all_projection_sources_fresh": all(row["status"] == "fresh" for row in sources.values())}
+
+
+def _ros_summary(player: dict[str, Any], weeks: list[int]) -> dict[str, Any]:
+    """Keep an active-game rate distinct from incomplete ROS evidence."""
+    byes = {int(value) for value in player.get("bye_weeks") or []}
+    expected = [week for week in weeks if week not in byes]
+    points = player.get("weekly_points") or {}
+    known = [_finite(points.get(str(week), points.get(week))) for week in expected]
+    values = [value for value in known if value is not None]
+    complete = bool(expected) and len(values) == len(expected)
+    return {"projection_pg": round(sum(values) / len(values), 4) if complete else None,
+            "projection_state": "remaining_week_ensemble" if complete else "partial_weekly" if values else "missing",
+            "projection_horizon": {"weeks": weeks, "nonbye_weeks": len(expected), "projected_weeks": len(values),
+                                   "complete": complete, "known_week_mean_pg": round(sum(values) / len(values), 4) if values else None}}
+
+
 def json_safe(value: Any) -> Any:
     """Convert pandas/numpy values and sets to strict JSON primitives."""
     if value is None or isinstance(value, (str, int, bool)):
@@ -331,21 +378,21 @@ def build_snapshot(force: bool = False, quick: bool = False) -> dict[str, Any]:
             if key
             else []
         )
-        has_weekly_evidence = any(
+        has_weekly_evidence = bool(remaining_observations) and all(
             value is not None for value in remaining_observations
         )
         ros_value = (
-            _finite(board_value("ros_pg"))
+            sum(remaining_observations) / len(remaining_observations)
             if has_weekly_evidence
             else None
         )
         season_value = _finite(board_value("value_pg"))
-        projection = ros_value if ros_value is not None else season_value
+        projection = ros_value
         projection_state = (
             "remaining_week_ensemble"
             if ros_value is not None
-            else "season_fallback"
-            if season_value is not None
+            else "partial_weekly"
+            if any(value is not None for value in remaining_observations)
             else "missing"
         )
         previous_projection = _prior_projection(previous, player_id)
@@ -430,10 +477,12 @@ def build_snapshot(force: bool = False, quick: bool = False) -> dict[str, Any]:
             else [],
             "source_provenance": {
                 "baseline": "Sleeper projection feed + ESPN weekly ensemble",
+                "sleeper_published_at": meta.get("last_mod"),
                 "market_in_baseline": False,
                 "legacy_market_fields_ignored": True,
             },
         }
+        player_rows[player_id].update(_ros_summary(player_rows[player_id], weeks))
 
     roster_rows = []
     for roster in rosters:
@@ -565,6 +614,10 @@ def load_snapshot() -> dict[str, Any]:
     snapshot = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
     if int(snapshot.get("schema_version") or 0) != 2:
         raise ValueError("The saved snapshot uses an older schema and must be refreshed")
+    league = snapshot.get("league") or {}
+    weeks = list(range(int(league.get("current_week") or 1), int(league.get("season_end_week") or CONFIG["season_end_week"]) + 1))
+    for player in (snapshot.get("players") or {}).values():
+        player.update(_ros_summary(player, weeks))
     return snapshot
 
 
@@ -823,12 +876,13 @@ def optimize_lineup(
         )
 
     # Restrictive slots first prevents FLEX from consuming a required RB/WR/TE.
+    eligible_indices = {
+        slot: tuple(index for index, player in enumerate(candidates) if _eligible(player["position"], slot))
+        for slot in slots
+    }
     order = sorted(
         range(len(slots)),
-        key=lambda index: sum(
-            _eligible(player["position"], slots[index])
-            for player in candidates
-        ),
+        key=lambda index: len(eligible_indices[slots[index]]),
     )
 
     @lru_cache(maxsize=None)
@@ -839,11 +893,10 @@ def optimize_lineup(
             return 0.0, ()
         slot = slots[order[depth]]
         best: tuple[float, tuple[int, ...]] | None = None
-        for index, player in enumerate(candidates):
-            if used_mask & (1 << index) or not _eligible(
-                player["position"], slot
-            ):
+        for index in eligible_indices[slot]:
+            if used_mask & (1 << index):
                 continue
+            player = candidates[index]
             score = (
                 float(player["points"])
                 if player["points"] is not None
@@ -958,6 +1011,7 @@ def _compact_player(
         "ros_projection_pg": player.get("projection_pg"),
         "engine_value_pg": player.get("projection_pg"),
         "projection_state": player.get("projection_state"),
+        "projection_horizon": player.get("projection_horizon"),
     }
     if detailed:
         base.update(
@@ -990,6 +1044,7 @@ def _sync_live(
     if not live:
         return snapshot
     synced = dict(snapshot)
+    synced["runtime_warnings"] = list(dict.fromkeys(list(snapshot.get("runtime_warnings") or []) + list(live.get("runtime_warnings") or [])))
     synced["league"] = dict(snapshot.get("league") or {})
     synced["league"].update(
         {
@@ -1017,9 +1072,14 @@ def _sync_live(
         for row in live.get("rosters") or []
     }
     projection_map = live.get("projection_by_player") or {}
+    metadata_map = live.get("player_metadata_by_id") or {}
     synced_players = {}
     for player_id, player in (snapshot.get("players") or {}).items():
         cell = dict(player)
+        metadata = metadata_map.get(str(player_id)) or {}
+        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent"):
+            if field in metadata:
+                cell[field] = metadata[field]
         owner_id = owner_map.get(str(player_id))
         cell["owner_roster_id"] = owner_id
         cell["owner"] = manager_map.get(owner_id)
@@ -1027,6 +1087,10 @@ def _sync_live(
             live.get("week") or cell.get("current_week") or 1
         )
         live_projection = projection_map.get(str(player_id))
+        if isinstance(live_projection, dict):
+            for field in ("game_date", "opponent"):
+                if live_projection.get(field) is not None:
+                    cell[field] = live_projection[field]
         if (
             isinstance(live_projection, dict)
             and _finite(live_projection.get("points")) is not None
@@ -1060,6 +1124,10 @@ def _sync_live(
                 cell["weekly_points"][week_key] = cell["live_week_projection"]
         synced_players[str(player_id)] = cell
     synced["players"] = synced_players
+    synced["live_source_provenance"] = live.get("source_provenance") or {}
+    roster_provenance = (live.get("source_provenance") or {}).get("rosters") or {}
+    if roster_provenance.get("fetched_at_utc"):
+        synced["league"]["live_refreshed_at_utc"] = roster_provenance["fetched_at_utc"]
     synced["rosters"] = [
         {
             **row,
@@ -1358,6 +1426,60 @@ def _legalize_roster(
     return current, dropped
 
 
+def trade_horizon(snapshot: dict[str, Any], terms: dict[str, Any]) -> dict[str, Any]:
+    """Trade benefits start only in an unstarted, usable scoring period."""
+    league = snapshot.get("league") or {}
+    week = int(league.get("current_week") or 1)
+    if terms.get("effective_week") is not None:
+        requested = int(terms["effective_week"])
+        if requested < week:
+            raise ValueError("A trade cannot become effective in a completed week")
+        if requested > week:
+            return {"effective_week": requested, "timing_basis": "explicit future effective week"}
+    involved = {int(terms.get("perspective_rid", MY_ROSTER_ID)), int(terms["other_rid"])}
+    players = snapshot.get("players") or {}
+    ids = {str(pid) for row in snapshot.get("rosters") or [] if int(row["roster_id"]) in involved for pid in row.get("player_ids") or []}
+    dates = [_timestamp((players.get(pid) or {}).get("game_date")) for pid in ids
+             if (players.get(pid) or {}).get("pos") in CORE_POSITIONS
+             and week not in set((players.get(pid) or {}).get("bye_weeks") or [])]
+    settings = league.get("league_settings") or {}
+    review_delay = int(settings.get("trade_review_days") or 0)
+    cutoff = utc_now() + dt.timedelta(days=review_delay)
+    verified_future = bool(dates) and all(date is not None and date > cutoff for date in dates)
+    return {"effective_week": week if verified_future else week + 1,
+            "timing_basis": "all relevant games start after the review period" if verified_future else "next-week assumption: game timing started, unknown, or within review period"}
+
+
+def _trade_validation(snapshot: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    freshness = evidence_freshness(snapshot)
+    reasons = []
+    if freshness["rosters"]["status"] != "fresh":
+        reasons.append("ownership_not_fresh")
+    if not freshness["all_projection_sources_fresh"]:
+        reasons.append("projection_sources_stale_or_unverified")
+    mine = _finite(result.get("perspective_delta_pg"))
+    theirs = _finite(result.get("counterparty_delta_pg"))
+    if mine is None or theirs is None:
+        reasons.append("incomplete_lineup_math")
+    if mine is not None and mine <= 0:
+        reasons.append("no_projected_upgrade")
+    if theirs is not None and theirs < 0:
+        reasons.append("counterparty_projected_loss")
+    checks = result.get("independent_projection_checks") or {}
+    complete = [row for row in checks.values() if _finite(row.get("perspective_delta_pg")) is not None and _finite(row.get("counterparty_delta_pg")) is not None]
+    if len(complete) < 2:
+        reasons.append("fewer_than_two_complete_projection_sources")
+    elif any(float(row["perspective_delta_pg"]) <= 0 or float(row["counterparty_delta_pg"]) < 0 for row in complete):
+        reasons.append("source_disagreement_or_counterparty_loss")
+    # A positive lineup delta does not establish market price or acceptance.
+    edge_supported = not reasons
+    reasons.append("recent_format_matched_trade_value_evidence_required")
+    return {"actionable": False, "projection_edge_supported": edge_supported,
+            "status": "exploratory", "reason_codes": reasons,
+            "acceptance_probability": None,
+            "instruction": "Do not call this fair, a winning actionable offer, or likely accepted until the evidence gaps are resolved. Team fit alone cannot establish trade value."}
+
+
 def evaluate_trade(
     snapshot: dict[str, Any], terms: dict[str, Any], *, source_checks: bool = True
 ) -> dict[str, Any]:
@@ -1395,7 +1517,8 @@ def evaluate_trade(
         (snapshot.get("league") or {}).get("season_end_week")
         or CONFIG["season_end_week"]
     )
-    weeks = list(range(week, end_week + 1))
+    effective_week = max(week, int(terms.get("effective_week") or week))
+    weeks = list(range(effective_week, end_week + 1))
     slots = [
         slot
         for slot in (snapshot.get("league") or {}).get("starter_slots")
@@ -1449,7 +1572,7 @@ def evaluate_trade(
         int(value)
         for value in (snapshot.get("league") or {}).get("playoff_weeks")
         or []
-        if int(value) >= week
+        if effective_week <= int(value) <= end_week
     ]
     if playoff_weeks:
         mine_playoff_before, _ = _roster_average(
@@ -1467,6 +1590,8 @@ def evaluate_trade(
             "byes score zero and missing projections remain unavailable"
         ),
         "weeks": weeks,
+        "effective_week": effective_week,
+        "timing_basis": terms.get("timing_basis", "explicit arithmetic scenario; no execution timing verified"),
         "slots_compared": math_slots,
         "unchanged_slots_excluded": [
             slot for slot in slots if slot not in math_slots
@@ -1572,6 +1697,7 @@ def evaluate_trade(
                     "counterparty_forced_drops",
                 )
             }
+        result["trade_validation"] = _trade_validation(snapshot, result)
     return result
 
 
@@ -1860,6 +1986,13 @@ def build_packet(
     )
     focus = match_players(question, current)
     warnings = list(current.get("runtime_warnings") or [])
+    freshness = evidence_freshness(current)
+    if freshness["rosters"]["status"] != "fresh":
+        warnings.append("Roster ownership is stale or unverified; saved ownership cannot establish that an offer or waiver move is available now.")
+    if not freshness["all_projection_sources_fresh"]:
+        warnings.append("One or more underlying projection sources are stale or have no verified fetch time; creating this packet did not refresh them.")
+    if not live_context:
+        warnings.append("Offline evidence: current ownership, injury changes, and game timing have not been refreshed.")
     if explicit_trade:
         wanted = set(explicit_trade.get("give_ids") or []) | set(
             explicit_trade.get("get_ids") or []
@@ -1884,7 +2017,9 @@ def build_packet(
             else None,
             "engine": (current.get("engine") or {}).get("version"),
             "market_in_baseline": False,
+            "source_freshness": freshness["projection_sources"],
         },
+        "evidence_quality": freshness,
         "league": _compact_league(current),
         "focused_players": [
             _compact_player(player, week) for player in focus
@@ -1934,7 +2069,7 @@ def build_packet(
                 "players. Do not treat the uncovered player as a zero or "
                 "as a negative market signal."
             )
-    if focus and source_configuration().get("fantasypros"):
+    if include_market and focus and source_configuration().get("fantasypros"):
         packet["expert_projection_evidence"] = focused_expert_packet(
             focus,
             int(
@@ -1952,6 +2087,7 @@ def build_packet(
             )
     elif intent == "explicit_trade":
         if explicit_trade:
+            explicit_trade = {**explicit_trade, **trade_horizon(current, explicit_trade)}
             trade_math = evaluate_trade(
                 current, explicit_trade
             )
@@ -2050,9 +2186,21 @@ def build_packet(
                 mine, current, week
             )
     elif intent == "league_rankings":
-        packet["power_rankings"] = (
-            current.get("power_rankings") or []
-        )
+        # Ownership changes between full projection refreshes. Reuse the
+        # saved forecasts, but rank today's rosters rather than saved teams.
+        weeks = list(range(week, int(CONFIG["season_end_week"]) + 1))
+        slots = [slot for slot in (current.get("league") or {}).get("starter_slots", [])
+                 if slot not in BENCH_SLOTS and slot not in {"K", "DEF"}]
+        rankings = []
+        for roster in current.get("rosters") or []:
+            mean, results = _roster_average(roster.get("player_ids") or [], current, weeks, slots)
+            rankings.append({"roster_id": roster["roster_id"], "manager": roster.get("manager"),
+                             "core_starter_pg": mean, "weeks_measured": len(weeks),
+                             "complete": mean is not None})
+        rankings.sort(key=lambda row: -(row["core_starter_pg"] if row["core_starter_pg"] is not None else -math.inf))
+        for rank, row in enumerate(rankings, 1):
+            row["rank"] = rank if row["complete"] else None
+        packet["power_rankings"] = rankings
         packet["ranking_basis"] = (
             "skill-position optimized starter projections; K/DST excluded "
             "and no manager-personality inference"
@@ -2192,11 +2340,12 @@ def build_packet(
     return json_safe(packet)
 
 
-def live_context(snapshot: dict[str, Any]) -> dict[str, Any]:
+def live_context(snapshot: dict[str, Any], *, include_transactions: bool = False) -> dict[str, Any]:
     return fetch_live_context(
         LEAGUE_ID,
         MY_ROSTER_ID,
         snapshot.get("players") or {},
+        include_transactions=include_transactions,
     )
 
 
@@ -2206,6 +2355,7 @@ def status_packet(
     return {
         "snapshot_generated_at_utc": snapshot.get("generated_at_utc"),
         "snapshot_age_minutes": round(snapshot_age_minutes(snapshot), 1),
+        "evidence_quality": evidence_freshness(_sync_live(snapshot, live)),
         "engine": snapshot.get("engine"),
         "league": _compact_league(_sync_live(snapshot, live)),
         "sources": source_configuration(),
