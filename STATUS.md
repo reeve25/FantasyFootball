@@ -55,10 +55,12 @@ Engine verified by running it from local PowerShell against this folder:
 - packet --market: live SportsGameOdds props returned in 3.9s.
 - Evidence writes to outputs/ as expected.
 
-Cowork's local sandbox is blocked by Windows KB5124008: device_bash cannot
-mount host shares, so Cowork has no execution path to this folder. Its file
-bridge still works — staging, listing and writing files are unaffected. Codex
-or local PowerShell is the execution path until this clears.
+Cowork's local sandbox was blocked by Windows KB5124008: device_bash could not
+mount host shares. Resolved by uninstalling the update; Windows updates are
+paused until mid-October 2026 and the KB reinstalls when they resume. The
+Cowork VM still cannot run the engine — no scipy, PyPI blocked by egress
+policy — so only `ff.py status` runs there. Local PowerShell remains the
+execution path for everything else. See docs/TRAPS.md.
 
 docs/TRAPS.md was written this session through that file bridge, porting the
 trap list from prior sessions. The anchor-curve floor asked for in that port
