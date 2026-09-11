@@ -83,6 +83,14 @@ Verify any performance patch by diffing against the unpatched path.
 - The Cowork VM cannot run the engine. scipy is absent and PyPI is blocked by
   egress policy, so anything importing ff_v6_3 fails at `from scipy.stats
   import poisson`. Only `status` runs there.
+- `--market` is a silent no-op on `lineup`, `rankings`, `movers` and
+  `transactions`. ff.py builds those from a canned question string, and the
+  market block runs `match_players(question, current)` — the canned strings
+  contain no player names, so `focus` is empty and `focused_market_packet` is
+  never called. Worse, `market_status` is left reading "not_requested; use
+  --market when it can change this decision" even though the user did request
+  it. Only `packet "<question naming players>"` and `trade` (which uses
+  give/get ids) actually reach the sportsbooks. Observed 2026-09-11.
 - latest.json records the executing environment's own path spelling: VM runs
   store /sessions/.../mnt/FantasyFootball/outputs/..., PowerShell runs store
   C:\Users\reeve\... Anything resolving paths from latest.json breaks across
@@ -96,6 +104,18 @@ all four providers false — sports_game_odds, the_odds_api, bettingpros,
 fantasypros (observed 2026-09-11). Expected, not a misconfiguration.
 advisor.py hard-disables the legacy engine market layer (BP_API_KEY="",
 QUICK=True) by design. Do not "fix" this.
+
+The Cowork device sandbox is unreliable again: on 2026-09-11 device_bash
+returned "Workspace unavailable. The isolated Linux environment on this device
+failed to start." device_list_dir / device_stage_files / device_commit_files
+still worked throughout, so the file bridge survives a dead VM.
+
+Cowork computer use cannot drive a terminal. Windows PowerShell, Terminal and
+File Explorer all resolve at tier "click" — visible and left-clickable, no
+typing, key presses or paste. Clicking the File Explorer taskbar icon never
+raised a window above the masked full-screen apps, so launching a .bat by
+double-click did not work either. There is currently no path from Cowork to a
+local shell: market runs need Reeve at the keyboard, or a .bat he clicks.
 
 The Windows KB5124008 sandbox break (Sept 2026) is resolved: uninstalling the
 update restored the device_bash mount. Windows updates are paused until
