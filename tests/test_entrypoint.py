@@ -15,6 +15,35 @@ spec.loader.exec_module(ff)
 
 
 class EntrypointIntegrationTests(unittest.TestCase):
+    def test_market_refresh_implies_market_and_forwards_cache_bypass(self):
+        from advisor_runtime import advisor as a
+        from advisor_runtime import market_sources
+        player = {"name": "Drake London"}
+        snapshot = {"players": {"player": player}, "rosters": [], "league": {}}
+        for flag, force_refresh in (("--market", False), ("--market-refresh", True)):
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "evidence.json"
+                with (
+                    mock.patch.dict(os.environ, {"FF_CHECKPOINT": str(checkpoint)}),
+                    mock.patch.object(a, "load_snapshot", return_value=snapshot),
+                    mock.patch.object(a, "_sync_live", return_value=snapshot),
+                    mock.patch.object(a, "build_packet", return_value={"status": "ok"}),
+                    mock.patch.object(a, "match_players", return_value=[player]),
+                    mock.patch.object(a, "focused_expert_packet"),
+                    mock.patch.dict(a.CONFIG),
+                    mock.patch.object(market_sources, "focused_market_packet", return_value={
+                        "line_snapshot": {"status": "written"},
+                    }) as fetch,
+                ):
+                    ff.worker(ff.parser().parse_args([
+                        "packet", "Show sportsbook lines for Drake London", "--offline", flag,
+                    ]))
+                fetch.assert_called_once_with([player], deep=False, force_refresh=force_refresh)
+                self.assertEqual(
+                    json.loads(checkpoint.read_text())["market_evidence"]["line_snapshot"],
+                    {"status": "written"},
+                )
+
     def test_selftest_runs_both_directories_and_preserves_failure(self):
         results = [subprocess.CompletedProcess([], 1), subprocess.CompletedProcess([], 0)]
         with mock.patch.object(ff.subprocess, "run", side_effect=results) as run:
