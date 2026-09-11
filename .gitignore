@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+__pycache__/
+*.py[cod]
+.venv/
+advisor_runtime/data/
+advisor_runtime/.ffcache/
+outputs/
+snapshots/
+*.log
+*.zip
+.edit.lock
