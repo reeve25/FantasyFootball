@@ -256,3 +256,20 @@ settled-week SGO closing lines with both prices, provider names/event weeks,
 and independent consensus-close plus final-box-score references for three
 players; run T2's approximately-one-FP acceptance, refine the converter if
 needed, update STATUS.md and commit. Do not start T3."
+
+## 2026-09-12 — T2c settled-event metadata complete
+
+User explicitly requested T2c then T2b in this session, with a separate T2c
+commit first. Raw SGO cache inspection found eventID, status.startsAt,
+info.seasonWeek, home/away team identities, player names and settlement flags.
+New line writes preserve player_name and event_metadata additively; all old
+fields and projection rows remain unchanged. No backfill or inferred weeks.
+
+Acceptance run: `python ff.py selftest` passed 63 + 31 tests (94 total),
+including metadata preservation/missing-field tests and existing reader tests.
+`python ff.py packet "Show sportsbook lines for Cam Ward" --market-refresh`
+then completed a real fresh fetch at 2026-09-12T19:31 UTC; the new snapshot
+was checked for nonempty player name, kickoff time and provider season week.
+Evidence: outputs/20260912T193111Z-c720eb26/evidence.json. Projection freshness
+warnings in that packet are unrelated to the metadata-write acceptance.
+Verdict: T2c PASS. Commit as "T2c" before proceeding to T2b.

@@ -180,14 +180,52 @@ class MarketHistoryTests(unittest.TestCase):
         for row in rows:
             self.assertEqual(
                 set(row),
-                {"row_type", "source", "event_id", "player_id", "book", "market", "side", "line", "price", "fetched_at_utc"},
+                {"row_type", "source", "event_id", "player_id", "book", "market", "side", "line", "price", "fetched_at_utc", "player_name", "event_metadata"},
             )
             self.assertEqual(row["row_type"], "line")
             self.assertEqual(row["source"], "SportsGameOdds")
             self.assertEqual(row["fetched_at_utc"], FETCH_TIME)
             self.assertEqual(row["player_id"], "p1")
             self.assertIsNone(row["price"])
-        self.assertNotIn(FEED_TIME, Path(result["path"]).read_text(encoding="utf-8"))
+        self.assertEqual(rows[0]["event_metadata"]["status"]["startsAt"], FEED_TIME)
+        self.assertNotIn("lastUpdatedAt", Path(result["path"]).read_text(encoding="utf-8"))
+
+    def test_event_metadata_preserves_week_game_identity_and_settlement(self):
+        source = payload()
+        event = source["data"][0]
+        event.update(sportID="FOOTBALL", leagueID="NFL",
+                     info={"seasonWeek": "Week 2"},
+                     teams={"home": {"teamID": "HOME_NFL", "names": {"short": "HOM"}},
+                            "away": {"teamID": "AWAY_NFL", "names": {"short": "AWY"}}})
+        event["status"] = {"startsAt": "2026-09-20T17:00:00Z", "completed": False,
+                           "finalized": False, "previousStartsAt": ["2026-09-19T17:00:00Z"]}
+        original = copy.deepcopy(source)
+        first = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME)
+        first_bytes = Path(first["path"]).read_bytes()
+        row = self.rows(first["path"])[0]
+        self.assertEqual(row["event_id"], "event-1")
+        self.assertEqual(row["player_id"], "p1")
+        self.assertEqual(row["player_name"], "Focus Player")
+        self.assertEqual(row["event_metadata"]["season_week"], "Week 2")
+        self.assertEqual(row["event_metadata"]["status"], event["status"])
+        self.assertEqual(row["event_metadata"]["teams"]["away"]["team_id"], "AWAY_NFL")
+        self.assertEqual(source, original)
+        event["status"]["completed"] = True
+        second = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME)
+        self.assertTrue(self.rows(second["path"])[0]["event_metadata"]["status"]["completed"])
+        self.assertEqual(Path(first["path"]).read_bytes(), first_bytes)
+
+    def test_absent_metadata_stays_unknown_and_name_parts_are_preserved(self):
+        source = payload()
+        event = source["data"][0]
+        event.pop("status")
+        event["players"]["p1"] = {"firstName": "Cameron", "lastName": "Ward"}
+        result = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME)
+        row = self.rows(result["path"])[0]
+        self.assertEqual(row["player_name"], "Cameron Ward")
+        self.assertIsNone(row["event_metadata"]["season_week"])
+        self.assertEqual(row["event_metadata"]["status"], {})
+        self.assertIsNone(row["event_metadata"]["teams"]["home"]["team_id"])
 
     def test_snapshot_persists_both_sides_with_price_and_full_projection_row(self):
         odds = {
