@@ -1,7 +1,43 @@
 import math
 import unittest
 
-from advisor_runtime.market_anchor import convert_snapshot, stat_distribution
+from advisor_runtime.market_anchor import (
+    YARDAGE_SD_DEFAULTS,
+    convert_snapshot,
+    default_yardage_sd,
+    stat_distribution,
+)
+
+
+class DefaultYardageSdTests(unittest.TestCase):
+    def test_covers_every_primary_and_secondary_stat_t2d_needs(self):
+        expected = {
+            ("QB", "pass_yd"), ("QB", "rush_yd"),
+            ("RB", "rush_yd"), ("RB", "rec_yd"),
+            ("WR", "rec_yd"), ("WR", "rush_yd"),
+            ("TE", "rec_yd"),
+        }
+        self.assertEqual(set(YARDAGE_SD_DEFAULTS), expected)
+
+    def test_all_values_positive_and_finite(self):
+        for value in YARDAGE_SD_DEFAULTS.values():
+            self.assertGreater(value, 0)
+            self.assertTrue(math.isfinite(value))
+
+    def test_primary_defaults_match_sigma_pos_divided_by_scoring_weight(self):
+        # Hand-verify against the engine's own backtested SIGMA_POS
+        # (advisor_runtime/engine/ff_v6_3.py) and real league scoring
+        # weights, per the sourcing documented in market_anchor.py.
+        cases = (("QB", "pass_yd", 3.02, .04), ("RB", "rush_yd", 3.85, .1),
+                 ("WR", "rec_yd", 3.20, .1), ("TE", "rec_yd", 2.27, .1))
+        for pos, stat, sigma, weight in cases:
+            with self.subTest(pos=pos, stat=stat):
+                self.assertAlmostEqual(default_yardage_sd(pos, stat), sigma / weight)
+
+    def test_unknown_position_or_stat_returns_none_not_a_guess(self):
+        self.assertIsNone(default_yardage_sd("K", "kick_pts"))
+        self.assertIsNone(default_yardage_sd("QB", "rec_yd"))
+        self.assertIsNone(default_yardage_sd("nonsense", "rush_yd"))
 
 
 class MarketAnchorTests(unittest.TestCase):

@@ -454,7 +454,8 @@ Blockers: T2b (real settled-week SD/consensus-close validation) remains the
 only thing standing between `market_anchor`/`blend` and a nonzero result;
 nothing in T4 unblocks it, and T4 does not attempt to.
 
-Exact starting prompt for T5:
+Exact starting prompt for T5 (superseded below -- see the 2026-09-12 T2d
+entry for the current one; kept for history):
 "Read BRIEF.md, STATUS.md, docs/FORECASTING.md, docs/TICKETS.md and
 docs/PROJECTION_SOURCE.md. Work T5 only: build
 advisor_runtime/backtest.py scoring stored projection snapshots against
@@ -471,3 +472,176 @@ file for at least one completed week, numbers sanity-checked). If acceptance
 cannot be satisfied as written, stop for approval rather than substitute.
 Run selftests, update STATUS.md with results/blockers and commit. Do not
 start T6 or T7."
+
+## 2026-09-12 — T2d complete: rec_yd/rush_yd SD sourced; blend path is real
+
+T4 (a554abe) exposed that `market_anchor`/`blend` always returned null for
+real players, logged as a T2b gap. T2d's job was narrower: source the
+missing `rec_yd`/`rush_yd` standard deviation `market_anchor.py`'s
+`convert_snapshot` requires per (player, week, stat) and wire it in so the
+blend path stops being permanently null. Done, with one real, separate bug
+found and worked around along the way (see below).
+
+### Where the SD is required (per the ticket's own inspection step)
+
+`convert_snapshot` looks up `yardage_sd.get((pid, week, stat))` once per
+required `_yd` stat and raises (caught as a per-row diagnostic, never a
+guess) if it's `None`. The shape is a scalar per exact (Sleeper pid, week,
+stat) tuple -- never per-position, never per-player-only. `market_anchor.py`
+was, by original T2a design, deliberately given no way to invent this
+itself ("explicit caller-supplied SD ... requiring empirical review").
+
+### Sourcing: priorities 1 and 2 checked and rejected; priority 3 used
+
+1. **Cross-book line dispersion, checked against a real fresh fetch.**
+   Different books really do post different single thresholds for the same
+   player/stat/event -- 664 of 1,568 groups (42%) in one live snapshot. This
+   was investigated as a real candidate (two or more distinct book lines
+   with their own prices let you solve `line_i = mean - sd * inv_cdf(p_over_i)`
+   for both mean and sd via linear regression, with no external assumption).
+   **Rejected**: that dispersion measures disagreement among bookmakers'
+   own point estimates of the mean, not the player's week-to-week outcome
+   variance -- a different, much smaller quantity. Using it would produce a
+   confidently-labeled but systematically-too-narrow SD (book lines cluster
+   within 1-2 yards; real weekly yardage SD is 20-40+ yards), which is worse
+   than an honest, explicitly-provisional default.
+2. **True alt-line markets** (one book quoting multiple distinct thresholds
+   for the same player/stat, which would let two-plus quantiles of one
+   consistent distribution be fit directly -- the theoretically correct
+   approach). **Rejected**: the raw SGO payload was inspected directly
+   (all 22 oddID shapes for a full event) and does not offer these --
+   exactly one over/under pair per player/stat/event is ever returned.
+3. **Per-position table already in the repo, converted units** (closest
+   available thing to priority 2's "already have a table," in spirit if not
+   literally new data): `advisor_runtime/engine/ff_v6_3.py`'s `SIGMA_POS`
+   is a real, backtested (n=905 trades, 3 seasons) per-game **fantasy-point**
+   forecast SD by position. Dividing by each position's dominant stat's own
+   linear scoring weight gives a **yardage** SD:
+   `QB pass_yd: 3.02/.04=75.5, RB rush_yd: 3.85/.1=38.5, WR rec_yd: 3.20/.1=32.0,
+   TE rec_yd: 2.27/.1=22.7`. This overstates the true yardage-only SD (some
+   of that point variance is really TD/reception variance), which is the
+   conservative direction, not an underestimate. These land inside commonly
+   cited public ranges for weekly NFL passing/rushing/receiving SDs (a
+   sanity check on the conversion, not an independent source). Secondary
+   stats with no equivalent position backtest (RB rec_yd 15.0, QB rush_yd
+   16.0, WR rush_yd 9.0) use separately-reasoned, smaller, conservative
+   constants from general public NFL knowledge instead -- per the ticket's
+   explicit rule, these are logged here as provisional, not fabricated
+   per-player numbers. Table lives in `advisor_runtime/market_anchor.py` as
+   `YARDAGE_SD_DEFAULTS`/`default_yardage_sd()`.
+
+### Wiring (kept out of convert_snapshot's own contract)
+
+`convert_snapshot`'s explicit, no-default `yardage_sd` parameter is
+unchanged -- T2a's original tests (an empty `yardage_sd` must still null the
+anchor) still pass unmodified. The default table is applied one layer up,
+in `market_anchor_projection.compute_projection_sources`
+(`use_default_yardage_sd=True` by default; explicit caller values always
+win; pass `False` to get T2a/T2c's original no-default behavior). This
+keeps market_anchor.py's pure/explicit conversion contract intact for
+callers who want it, while `ff.py`'s real wiring gets a working default for
+free. Every attribution entry in the packet now also reports
+`provisional_sd_stats`, and a `runtime_warnings` entry names which stats
+used a default, so nothing about this is silent.
+
+### A second, separate bug found and worked around (not fixed)
+
+T4's `REQUIRED_STATS_BY_POSITION` required `rec_td`/`rush_td` as scoring
+components. These can **never** resolve: SportsGameOdds only ever posts an
+aggregate anytime-touchdown market (`SPORTS_GAME_ODDS_STATS["touchdowns"] =
+"td"`), never split by rushing vs. receiving. Every required-stats list
+naming `rec_td`/`rush_td` was structurally unfulfillable regardless of SD --
+this, not just the missing SD, was *also* nulling every T4 result. Real
+market coverage for WR rushing yardage and some secondary stats is also
+inconsistent. T2d's fix: narrow `REQUIRED_STATS_BY_POSITION` to each
+position's core, reliably-posted yardage stat(s) only -- `QB: [pass_yd]`,
+`RB: [rush_yd, rec_yd]`, `WR: [rec_yd]`, `TE: [rec_yd]` -- which is exactly
+this ticket's named scope (rec_yd/rush_yd) and isolates the SD fix as the
+only remaining variable. `anchor_fp` is therefore a yardage-only partial
+approximation by construction now, more so than T4's already-partial
+design. Fixing the `td` aggregate mapping and secondary-stat coverage is
+left for a follow-up ticket (see next-prompt below) -- explicitly not done
+here, per "one ticket only."
+
+### Acceptance: run against 6 real players, 3 positions, live fresh lines
+
+`ff.py --full trade --give "Trevor Lawrence" --give "Javonte Williams"
+--give "Drake London" --get "Justin Herbert" --get "Kenneth Walker III"
+--get "Rome Odunze" --projection-source blend`, snapshot
+`2026-09-12T204946...jsonl`. Full comparison table and command in
+docs/T2_ACCEPTANCE.json's `t2d_check`. Per-player week-1 `market_anchor_fp`
+(yardage-only) vs. the existing default (sleeper+espn blend):
+
+| player | pos | market_anchor | default |
+| --- | --- | --- | --- |
+| Trevor Lawrence | QB | 9.32 | 17.79 |
+| Justin Herbert | QB | 9.44 | 18.67 |
+| Javonte Williams | RB | 8.61 | 16.32 |
+| Kenneth Walker III | RB | 7.97 | 14.18 |
+| Drake London | WR | 5.51 | 13.93 |
+| Rome Odunze | WR | 3.92 | 11.73 |
+
+All 6 non-null. `market_anchor` is 33%-56% of the default for every player
+-- plausible (yardage is the largest but not the only scoring component for
+a skill player), not identical (expected, since this is a deliberately
+partial yardage-only anchor), not absurd. `market_anchor_blend` exactly
+equals `market_anchor` for all 6 (no curated assumptions exist yet for any
+of them -- the correct, honest T3 result given nothing to blend with).
+`independent_projection_checks` in a live trade run now includes
+`market_anchor`/`market_anchor_blend` entries alongside `espn`/
+`sleeper_projection_feed`, exactly as T4's mechanism promised once the
+sources exist.
+
+**Verdict, and a scope question resolved by asking rather than guessing:**
+the trade's own top-level `perspective_delta_pg`/`counterparty_delta_pg`
+under `--projection-source blend` are *still* null -- not from a missing
+SD, but because `evaluate_trade` averages every week from the trade's
+effective week through week 17, and a single market fetch only ever has
+lines for the current week. No SD fix can supply weeks 2-17 data that
+doesn't exist; this is a structural mismatch between single-week market
+coverage and a multi-week evaluator, discovered only after the SD fix
+removed the original blocker. Asked the user how to score this rather than
+deciding alone: **accept the verified per-player/per-week non-null
+anchor/blend as satisfying T2d's acceptance**, log the multi-week gap as a
+new, separate, deferred item (not attempted here), and continue -- this was
+the user's own recommended option ("do whatever is best for progression").
+**T2d verdict: PASS at its stated scope** (SD sourced, wired, real non-null
+per-player projections, full test suite green). The multi-week
+trade-rollup gap is a new open item, not a T2d regression.
+
+Test suite: `python ff.py --selftest`, 100 runtime + 31 other tests (131
+total) pass, including 6 new `market_anchor.py` SD-table tests and 4 new/2
+modified `market_anchor_projection.py` tests (default-fills-automatically,
+explicit-override-wins, defaults-disabled preserves T2a/T2c behavior).
+
+Blockers: none for T2d itself. Open for a future ticket: (a) the
+`rec_td`/`rush_td` vs. aggregate `td` market-name mismatch and secondary-stat
+coverage gaps noted above; (b) the multi-week trade-rollup gap just found
+(market_anchor/blend can only ever populate weeks a fresh fetch actually
+covers -- typically just the current week); (c) T2b itself (real
+settled-week empirical validation) remains unvalidated and deferred,
+unchanged by this ticket -- these are provisional defaults, not validated
+per-player SDs.
+
+Exact starting prompt for T5:
+"Read BRIEF.md, STATUS.md, docs/FORECASTING.md, docs/TICKETS.md,
+docs/PROJECTION_SOURCE.md and docs/T2_ACCEPTANCE.json's t2d_check. Work T5
+only: build advisor_runtime/backtest.py scoring stored projection snapshots
+against actual results (MAE per source: anchor/Sleeper/ESPN/blend). T2b
+remains unvalidated and deferred, and market_anchor/blend's yardage SDs are
+still provisional per-position defaults (not per-player) -- do not work T2b
+or treat either as a defect to fix under T5. Two new items surfaced by T2d,
+also out of scope for T5 unless they block the acceptance check itself: the
+rec_td/rush_td-vs-aggregate-td market-name mismatch limiting required_stats
+to core yardage only, and market_anchor/blend only ever covering whatever
+week(s) a single fetch's snapshot actually has lines for (never a full ROS
+range). The ticket flags where actual weekly stat lines would come from as
+uncertain: no existing module in advisor_runtime fetches final box scores
+today. Resolve that by reading the real code/APIs available (Sleeper's
+stats endpoints, if any) rather than guessing or fabricating results data;
+if no reliable local source exists, stop and report that rather than
+substituting synthetic actuals. Run T5's acceptance (a report file for at
+least one completed week, numbers sanity-checked). If acceptance cannot be
+satisfied as written, stop for approval rather than substitute. Run
+selftests, update STATUS.md with results/blockers and commit. Do not start
+T6 or T7."

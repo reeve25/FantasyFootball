@@ -17,25 +17,40 @@ import re
 from typing import Any
 
 from advisor_runtime import assumptions as assumptions_module
-from advisor_runtime.market_anchor import convert_snapshot
+from advisor_runtime.market_anchor import convert_snapshot, default_yardage_sd
 
 MARKET_ANCHOR_KEY = "market_anchor"
 BLEND_KEY = "market_anchor_blend"
 
-# Scoring components an SGO market can price, by position. Fumbles lost,
-# two-point conversions, and defense/special-teams scoring have no matching
-# SportsGameOdds market and are never included here: anchor_fp is therefore a
-# partial-scoring approximation by construction, not a full replica of league
-# scoring (see docs/MARKET_ANCHOR.md). K is excluded outright -- Sleeper
-# kicking uses nonlinear per-distance field-goal buckets with no single
-# linear "kick_pts" coefficient, which this linear converter cannot model
-# (market_anchor.py: "Nonlinear bonuses and position-dependent scoring need a
-# separate adapter").
+# T2d: deliberately narrowed to each position's core, reliably-posted
+# yardage stat(s) only -- the exact scope of this ticket ("source the
+# missing rec_yd / rush_yd SD"), not a full scoring replica. This is
+# narrower than T4's original attempt, which required pass_td/pass_int/
+# rush_td/rec_td/rec/WR-rush_yd/QB-rush_yd too and was null for every real
+# player for TWO compounding reasons, only one of which is this ticket's
+# scope:
+#   1. (this ticket) rec_yd/rush_yd had no SD source at all -- fixed above.
+#   2. (a separate, real bug, NOT fixed here) "rec_td"/"rush_td" can never
+#      be satisfied: SportsGameOdds only ever posts an aggregate anytime-TD
+#      market ("touchdowns" -> stat key "td" in market_sources.
+#      SPORTS_GAME_ODDS_STATS), never split by rushing vs. receiving. Every
+#      required_stats list that named "rec_td"/"rush_td" was structurally
+#      unfulfillable regardless of SD. Secondary stats (WR rush_yd, RB
+#      rec_yd's reliability, QB rush_yd, reception counts) also have
+#      inconsistent real coverage. Left for a follow-up ticket -- see
+#      STATUS.md's T2d Decision Log and next-prompt.
+# anchor_fp is therefore a yardage-only partial-scoring approximation by
+# construction (see docs/MARKET_ANCHOR.md), not a full replica of league
+# scoring. K is excluded outright -- Sleeper kicking uses nonlinear
+# per-distance field-goal buckets with no single linear "kick_pts"
+# coefficient, which this linear converter cannot model (market_anchor.py:
+# "Nonlinear bonuses and position-dependent scoring need a separate
+# adapter").
 REQUIRED_STATS_BY_POSITION = {
-    "QB": ["pass_yd", "pass_td", "pass_int", "rush_yd", "rush_td"],
-    "RB": ["rush_yd", "rush_td", "rec_yd", "rec", "rec_td"],
-    "WR": ["rec_yd", "rec", "rec_td", "rush_yd", "rush_td"],
-    "TE": ["rec_yd", "rec", "rec_td"],
+    "QB": ["pass_yd"],
+    "RB": ["rush_yd", "rec_yd"],
+    "WR": ["rec_yd"],
+    "TE": ["rec_yd"],
 }
 
 
@@ -77,6 +92,31 @@ def required_stats_for(players: list[dict[str, Any]]) -> dict[str, list[str]]:
     }
 
 
+def build_default_yardage_sd(
+    players: list[dict[str, Any]], weeks: range = range(1, 19)
+) -> dict[tuple[str, int, str], float]:
+    """T2d: {(pid, week, stat): sd} from market_anchor.YARDAGE_SD_DEFAULTS.
+
+    Filled for every week 1-18 regardless of which week actually shows up in
+    a given snapshot -- convert_snapshot only ever looks up the weeks that
+    occur in real converted rows, so the extras are inert. A (position, stat)
+    pair absent from YARDAGE_SD_DEFAULTS is simply not covered (that
+    component stays a documented missing stat), never guessed here either.
+    """
+    sd: dict[tuple[str, int, str], float] = {}
+    for player in players:
+        pos = player.get("pos")
+        pid = str(player.get("pid"))
+        for stat in REQUIRED_STATS_BY_POSITION.get(pos, []):
+            if not stat.endswith("_yd"):
+                continue
+            value = default_yardage_sd(pos, stat)
+            if value is not None:
+                for week in weeks:
+                    sd[(pid, week, stat)] = value
+    return sd
+
+
 def compute_projection_sources(
     line_rows: list[dict[str, Any]],
     *,
@@ -86,19 +126,35 @@ def compute_projection_sources(
     priced_in_guard=None,
     yardage_sd: dict | None = None,
     fallbacks: dict | None = None,
+    use_default_yardage_sd: bool = True,
 ) -> dict[str, Any]:
     """Return {"sources": {pid: {market_anchor_key: {week_str: fp}, blend_key: {...}}}, "diagnostics": [...]}.
 
-    yardage_sd/fallbacks default empty: without a T2b-validated SD, any
-    yardage-dependent stat stays a documented missing component (anchor_fp
-    null for that player-week), never a guessed value (see STATUS.md's T2b
-    entries). assumption_registry defaults empty: with no curated
-    assumptions, the "blend" is just the anchor, which is the correct,
-    honest result of T3's apply() given nothing to blend with.
+    T2d: by default (use_default_yardage_sd=True), a player-week-stat with no
+    explicit yardage_sd falls back to market_anchor.YARDAGE_SD_DEFAULTS's
+    provisional per-position value -- explicit caller entries always win.
+    Pass use_default_yardage_sd=False (or an explicit empty yardage_sd with
+    it) to get T2a/T2c's original behavior: no SD means a documented missing
+    component, never a guess (see STATUS.md's T2b entries -- still the
+    per-player empirical validation these position defaults are provisional
+    pending). fallbacks defaults empty regardless: no team-share default
+    exists or is invented here. assumption_registry defaults empty: with no
+    curated assumptions, the "blend" is just the anchor, which is the
+    correct, honest result of T3's apply() given nothing to blend with.
     """
     players = [p for p in players if p.get("pos") in REQUIRED_STATS_BY_POSITION]
     provider_names, event_weeks = build_identity_inputs(line_rows)
     required_stats = required_stats_for(players)
+    default_sd = build_default_yardage_sd(players) if use_default_yardage_sd else {}
+    explicit_sd = yardage_sd or {}
+    resolved_sd = {**default_sd, **explicit_sd}
+    # Every (pid, week, stat) this run priced using a provisional position
+    # default rather than a caller-supplied (eventually T2b-validated) value,
+    # so consumers can see exactly which numbers below rest on
+    # YARDAGE_SD_DEFAULTS -- keyed per player-week-stat, not just by stat
+    # name, so an explicit override for one week doesn't get misreported as
+    # provisional just because other weeks still use the default.
+    provisional_sd_keys = {key for key in default_sd if key not in explicit_sd}
     converted = convert_snapshot(
         line_rows,
         provider_names=provider_names,
@@ -106,7 +162,7 @@ def compute_projection_sources(
         players=players,
         scoring=scoring,
         required_stats=required_stats,
-        yardage_sd=yardage_sd or {},
+        yardage_sd=resolved_sd,
         fallbacks=fallbacks or {},
     )
     registry = assumption_registry or []
@@ -134,11 +190,16 @@ def compute_projection_sources(
             "adjusted_fp": blended["adjusted_fp"],
             "cap_applied": blended["cap_applied"],
             "attribution": blended["attribution"],
+            "provisional_sd_stats": sorted(
+                stat for stat in anchor_row["implied_stats"]
+                if (pid, week, stat) in provisional_sd_keys
+            ),
         }
     return {
         "sources": sources,
         "diagnostics": converted["diagnostics"],
         "attribution": attribution,
+        "provisional_sd_stats": sorted({key[2] for key in provisional_sd_keys}),
     }
 
 
