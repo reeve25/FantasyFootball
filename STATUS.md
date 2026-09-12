@@ -295,3 +295,54 @@ pre-kickoff snapshots for a QB/RB/WR cohort; verify actual box-score distributio
 shape and the original approximately-one-FP consensus-close criterion. If any
 further substitution is needed, propose it and stop for approval. Record the
 verdict in docs/T2_ACCEPTANCE.json and STATUS.md, then commit."
+
+## 2026-09-12 — T3 complete: assumption registry and conservative blender
+
+Done: advisor_runtime/assumptions.py implements the JSON registry schema,
+strict local input validation/loading, stat-to-FP weighting, half-life decay,
+availability-weight support, conservative aggregate cap and a tri-state
+double-count guard interface. Returns reconciled FP attribution without numeric
+confidence/P(active) fields; does not mutate inputs or perform network research.
+docs/ASSUMPTIONS.md documents the contract. No T4 wiring or T6 implementation.
+
+Acceptance actually run: `python ff.py selftest` passed 74 runtime + 31 other
+tests (105 total), including 11 new T3 tests. The required cap, decay and
+double-count guard cases all passed, alongside availability, negative scoring,
+missing anchors, JSON loading, validation and immutability. No substitution.
+T3 verdict: PASS. Blockers: none for T3. Commit message:
+"T3: assumption registry and blender".
+
+### Decision Log — conservative defaults selected for T3
+
+- User explicitly deferred T2b and authorized T3. T2b remains unvalidated;
+  no weaker test or settled-slate substitution was performed.
+- Cap the gross sum of absolute weighted effects at 15% of abs(anchor),
+  scaling attribution proportionally. This bounds net movement in either
+  direction even when effects offset. No exceptional-evidence override;
+  zero anchors cannot move and missing anchors stay missing.
+- Half-life starts at week_range[0]; ranges are inclusive and season-scoped.
+  Confidence is required input in [0,1], not assigned a guessed default.
+- Stat deltas use explicit linear scoring. Availability delta is relative to
+  active weight 1, constrained to [-1,0] for injury/workload. It is applied
+  only to an explicitly conditional-on-playing anchor, weighted and decayed
+  before the same cap. It never serves as an injury eligibility override.
+- The T6 hook returns True=priced, False=checked/unpriced, None=unknown.
+  Missing/unknown checks suppress effects; errors propagate. No permissive
+  default and no line-movement implementation in this ticket.
+- Changed means do not imply a calibrated variance: variance is unknown after
+  a nonzero requested effect. Unchanged anchors retain supplied variance.
+  Internal confidence and availability weights are not exposed as calibrated
+  probabilities; BRIEF.md remains authoritative for advisor output.
+
+Exact starting prompt for T4:
+"Read BRIEF.md, STATUS.md, docs/FORECASTING.md, docs/TICKETS.md and
+docs/ASSUMPTIONS.md. Work T4 only: wire sleeper | espn | market_anchor | blend
+projection selection into the evaluator, choosing and documenting conservative
+defaults. T2b remains deferred and unvalidated; do not work it or weaken its
+acceptance. Use the T3 registry/blender contract and preserve unknown/priced-in
+guards; never expose internal weights as calibrated probabilities. Run T4's
+Walker/London acceptance with weekly PPG, playoff delta, bye effects and
+assumption attribution, comparing blend versus Sleeper-only. If acceptance
+cannot be satisfied as written, stop for approval rather than substitute.
+Run selftests, update STATUS.md with results/blockers and commit. Do not start
+T5 or T6."

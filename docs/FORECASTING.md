@@ -5,10 +5,9 @@ This describes the prediction method the market-anchored projection work
 sportsbook evidence, how explicit assumptions adjust it, and how accuracy is
 measured afterward. It is an engineering/architecture spec for that pipeline,
 not advice-session instructions -- BRIEF.md still governs how an assistant
-talks to Reeve, and BRIEF.md wins wherever the two disagree (see the logged
-conflict in STATUS.md's 2026-09-12 entry: this method's per-assumption
-confidence values sit in tension with BRIEF.md's rule against inventing
-calibrated confidence percentages; that tension is not resolved here).
+talks to Reeve, and BRIEF.md wins wherever the two disagree. STATUS.md's
+2026-09-12 decision resolves confidence/P(active) as internal blend weights
+only, never advisor-facing calibrated probabilities.
 
 Migrated from ADVISOR_SPEC.md sections 2-3, which is deleted; this file is
 now the source of truth for the method itself.
