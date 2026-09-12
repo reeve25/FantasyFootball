@@ -217,6 +217,15 @@ this. Per BRIEF.md's precedence: until this is decided, no session should
 present an assumption's confidence value to Reeve as a calibrated
 probability.
 
+## 2026-09-12 — Decision: confidence/P(active) conflict resolved, T3 unblocked
+
+Confidence values and P(active) in the assumption registry are internal
+blend weights only, never reported as advisor-facing calibrated
+probabilities (BRIEF.md governs all user-facing output). Weights are
+validated solely via the T5 backtest and default conservative until then.
+
+This resolves the conflict flagged after commit aa7711d. T3 is unblocked.
+
 ## 2026-09-12 — T2a converter implemented; T2b empirical validation blocked
 
 Implemented advisor_runtime/market_anchor.py: paired-price de-vig, explicit
