@@ -346,3 +346,128 @@ assumption attribution, comparing blend versus Sleeper-only. If acceptance
 cannot be satisfied as written, stop for approval rather than substitute.
 Run selftests, update STATUS.md with results/blockers and commit. Do not start
 T5 or T6."
+
+## 2026-09-12 — T4 complete: projection-source switch wired into the evaluator
+
+Done: `ff.py trade --projection-source {sleeper,espn,market_anchor,blend}`.
+See docs/PROJECTION_SOURCE.md for the mechanism and full verified results.
+New files: `advisor_runtime/market_anchor_projection.py` (glue: T2c line-row
+metadata -> `market_anchor.convert_snapshot` -> `assumptions.apply`, per
+player-week), `docs/PROJECTION_SOURCE.md`. Changed: `advisor_runtime/
+advisor.py` (`select_projection_source`, additive), `advisor_runtime/
+market_sources.py` (`read_snapshot_rows`, additive), `ff.py` (`trade`'s new
+flag and worker wiring). No existing function was modified: `_projection_for_
+week`, `optimize_lineup`, `_roster_average`, `_legalize_roster` and
+`evaluate_trade` are byte-for-byte unchanged from T3.
+
+### Decision Log — mechanism for the projection-source switch
+
+- **Default stays "no switch," not "blend."** T4's own ticket text named
+  blend as the default; this session's explicit rule ("existing evaluator
+  and trade math behavior must not change when the new projection source is
+  disabled") overrides that, and T2b is still unvalidated (blocked, per the
+  2026-09-12 T2b entry above) -- defaulting live trade math to an unvalidated
+  source would be reckless. Omitting `--projection-source` reproduces
+  today's exact default (`weekly_points`, the existing sleeper+espn average).
+- **Mechanism: reuse `evaluate_trade`'s own substitution, don't parameterize
+  the evaluator.** The ticket flagged the switch mechanism itself as
+  uncertain (CONFIG flag vs. a `projection_source` parameter threaded through
+  `_projection_for_week`/`optimize_lineup`/`_roster_average`/
+  `_legalize_roster`/`evaluate_trade`). Reading `evaluate_trade`, its own
+  `independent_projection_checks` already substitutes
+  `weekly_points_by_source[key]` into `weekly_points` for whatever source
+  keys exist, then recurses with `source_checks=False` -- this is already
+  the "same interface" the ticket asked for. `select_projection_source()`
+  reuses that exact substitution as a snapshot-copy helper; none of the five
+  evaluator functions needed a new parameter, so none were touched, which is
+  a strictly stronger safety guarantee than a default argument would have
+  been. This was picked over the parameter-threading approach because it
+  required zero changes to tested code and reused an already-correct,
+  already-tested mechanism instead of adding a second one.
+- **market_anchor/blend computation is opt-in and isolated.** Only
+  `--projection-source market_anchor`/`blend` imports
+  `market_anchor_projection` (and transitively scipy) and fetches a fresh
+  snapshot; `sleeper`/`espn` need neither. `yardage_sd`/`fallbacks` are
+  passed empty -- no SD is invented for this ticket, consistent with T2b
+  remaining unvalidated and deferred. `REQUIRED_STATS_BY_POSITION` covers
+  QB/RB/WR/TE only; K is excluded because Sleeper kicking has no single
+  linear `kick_pts` coefficient, which the linear converter cannot model.
+- **A player with no computed anchor is never injected as an empty/null
+  entry.** `inject_projection_sources` only adds a `weekly_points_by_source`
+  key when at least one week has a real value, so `market_anchor`/
+  `market_anchor_blend` simply don't appear in `independent_projection_checks`
+  when both traded players are fully null -- no misleading all-null column.
+- **The assumptions-attribution block is always present in output**, with an
+  empty `attribution` list when nothing is curated to attribute (true today
+  for every real player) -- required by the acceptance's output shape, not
+  conditional on there being a nonzero adjustment.
+
+### Acceptance: run, not substituted
+
+Live rerun, 2026-09-12, `ff.py trade --give "Drake London" --get "Kenneth
+Walker III"`, once per source:
+
+| source | perspective_delta_pg | counterparty_delta_pg | playoff delta |
+| --- | --- | --- | --- |
+| default (flag omitted) | -0.0093 | -6.0097 | -0.6907 |
+| sleeper | -0.4044 | -5.1222 | -1.3756 |
+| espn | 0.3853 | -6.5896 | -0.0066 |
+| market_anchor | null | null | null |
+| blend | null | null | null |
+
+`sleeper`/`espn` exactly reproduce the unmodified default run's own
+`independent_projection_checks["sleeper_projection_feed"]`/`["espn"]`
+entries -- proof the switch and the existing comparison agree, not just that
+each runs without error. `market_anchor`/`blend` are honestly null: real
+fresh lines were fetched and both players' identity/week resolved correctly
+(the T2c metadata and the name-alias bridge both worked --
+`market_anchor_diagnostics` shows zero identity/week failures for either
+player), but both are rejected with `"reason": "Yardage SD assumption
+required"` for `rec_yd`/`rush_yd`. This is the pre-existing T2b gap surfacing
+correctly through the new wiring, not a new problem, and nothing was
+substituted to paper over it -- no SD was invented to force a nonzero result.
+Test suite: `python ff.py --selftest`, 94 runtime + 31 other tests (125
+total) pass, including 20 new tests (5 for `select_projection_source`, 12
+for `market_anchor_projection`, 2 for `read_snapshot_rows`, 1 proving
+`evaluate_trade`'s unmodified `independent_projection_checks` discovers an
+injected source on its own).
+
+**Unrelated flaky test found while verifying, not fixed (out of scope for
+T4):** `test_focused_market_packet_flags_and_warns_on_lost_book_coverage` in
+`advisor_runtime/tests/test_market_history.py` fails intermittently
+(~2 of 10 runs) on the pre-T4 commit (d9bb992) with no T4 changes present at
+all -- confirmed by running it 10x against a git-stashed baseline. Cause not
+investigated (likely a real-clock timestamp/file-ordering race in
+`_previous_snapshot_path`, since that test's two fetches use `datetime.now()`
+rather than a fixed fetch time, unlike most of that file's other tests). A
+lone failure of just this test on a future `ff.py --selftest` run is this
+known flake, not a regression; re-run to confirm before treating it as one.
+
+**Out of scope, left for later tickets, not silently expanded into:**
+`--projection-source` only exists on `trade`; `packet`/`lineup`/`rankings`
+display paths (`_compact_player`, the `rankings` roster table) still call
+`_projection_for_week` with no source argument and are unaffected. T7
+(conversational routing) is the natural place to decide whether those need
+it too.
+
+Blockers: T2b (real settled-week SD/consensus-close validation) remains the
+only thing standing between `market_anchor`/`blend` and a nonzero result;
+nothing in T4 unblocks it, and T4 does not attempt to.
+
+Exact starting prompt for T5:
+"Read BRIEF.md, STATUS.md, docs/FORECASTING.md, docs/TICKETS.md and
+docs/PROJECTION_SOURCE.md. Work T5 only: build
+advisor_runtime/backtest.py scoring stored projection snapshots against
+actual results (MAE per source: anchor/Sleeper/ESPN/blend). T2b and the
+market_anchor/blend yardage-SD gap remain unvalidated and deferred -- do not
+work T2b, invent an SD, or treat market_anchor/blend's current null output
+as a defect to fix under T5. The ticket flags where actual weekly stat lines
+would come from as uncertain: no existing module in advisor_runtime fetches
+final box scores today. Resolve that by reading the real code/APIs available
+(Sleeper's stats endpoints, if any) rather than guessing or fabricating
+results data; if no reliable local source exists, stop and report that
+rather than substituting synthetic actuals. Run T5's acceptance (a report
+file for at least one completed week, numbers sanity-checked). If acceptance
+cannot be satisfied as written, stop for approval rather than substitute.
+Run selftests, update STATUS.md with results/blockers and commit. Do not
+start T6 or T7."

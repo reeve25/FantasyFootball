@@ -801,6 +801,23 @@ def _line_row_player_ids(path: Path) -> set[str]:
     return ids
 
 
+def read_snapshot_rows(path: str | Path) -> list[dict[str, Any]]:
+    """Every parsed row (line or projection) from one market-history file.
+
+    Malformed lines are skipped rather than failing the whole read; this is a
+    read of an append-only, exclusively-created file, so a bad line would
+    mean disk corruption, not a race with the writer.
+    """
+    rows: list[dict[str, Any]] = []
+    with Path(path).open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            try:
+                rows.append(json.loads(raw_line))
+            except ValueError:
+                continue
+    return rows
+
+
 def _player_resolution_status(
     player: dict[str, Any],
     *,

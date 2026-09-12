@@ -60,7 +60,16 @@ by the advisor conversation.
 Acceptance: unit tests covering cap, decay, double-count guard hook
 (interface for T6).
 
-## T4 — Wire projections into evaluator  [CORE]
+## T4 — Wire projections into evaluator  [CORE; complete 2026-09-12]
+
+Implemented as `ff.py trade --projection-source {sleeper,espn,market_anchor,
+blend}`. See docs/PROJECTION_SOURCE.md for the mechanism and verified
+results; acceptance results and the mechanism decision are in STATUS.md.
+Default (flag omitted) is unchanged existing behavior, not "blend" -- the
+ticket's "(default)" below is superseded, per this session's explicit rule
+that existing evaluator/trade math must not change when the switch is
+disabled; logged in STATUS.md's Decision Log rather than silently applied.
+
 Add a projection source switch: sleeper | espn | market_anchor | blend
 (default). Rerun the Walker<->London example (see STATUS.md's 2026-09-11
 entry) end-to-end. Report: weekly PPG delta, playoff-week delta, bye effects,

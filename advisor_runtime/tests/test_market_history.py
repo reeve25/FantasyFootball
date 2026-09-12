@@ -494,6 +494,20 @@ class MarketHistoryTests(unittest.TestCase):
             self.assertLessEqual(before, timestamp)
             self.assertLessEqual(timestamp, after)
 
+    def test_read_snapshot_rows_returns_every_parsed_row(self):
+        result = market_sources._write_sports_game_odds_snapshot(payload(), FETCH_TIME)
+        rows = market_sources.read_snapshot_rows(result["path"])
+        self.assertEqual(len(rows), result["rows"])
+        self.assertEqual({row["row_type"] for row in rows}, {"line"})
+
+    def test_read_snapshot_rows_skips_malformed_lines(self):
+        result = market_sources._write_sports_game_odds_snapshot(payload(), FETCH_TIME)
+        path = Path(result["path"])
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("not json\n")
+        rows = market_sources.read_snapshot_rows(path)
+        self.assertEqual(len(rows), result["rows"])
+
     def test_failed_http_or_json_fetch_does_not_create_history(self):
         http_failure = mock.Mock()
         http_failure.raise_for_status.side_effect = market_sources.requests.HTTPError("fixture")
