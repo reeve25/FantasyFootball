@@ -273,3 +273,25 @@ was checked for nonempty player name, kickoff time and provider season week.
 Evidence: outputs/20260912T193111Z-c720eb26/evidence.json. Projection freshness
 warnings in that packet are unrelated to the metadata-write acceptance.
 Verdict: T2c PASS. Commit as "T2c" before proceeding to T2b.
+
+## 2026-09-12 — T2b verdict: BLOCKED, approval required
+
+T2c committed first as 7cc0a80. Fresh SGO metadata still reports zero settled
+events among 18; NFL schedule verification shows Week 1 remains in progress
+(https://www.nfl.com/schedules). The earliest local snapshot is September 11
+19:05 UTC, after kickoff of the games already final. Thus no three-player
+settled QB/RB/WR cohort with local pre-kickoff snapshots can be validated today.
+Recheck evidence is recorded in docs/T2_ACCEPTANCE.json; no numerical anchor,
+actual-distribution or approximately-one-FP consensus-close pass is claimed.
+
+Proposed timing change, NOT approved or executed: resume after Week 1 settles
+(September 15 UTC), using saved pre-kickoff evidence and retaining both original
+acceptance checks. No substitution of post-kickoff lines, historical external
+fixtures, or raw thresholds for consensus closing means was made. Stopping per
+the user's explicit approval rule, without proceeding to T3 or T5.
+
+Exact next prompt if approved: "Resume T2b after Week 1 settles. Use saved
+pre-kickoff snapshots for a QB/RB/WR cohort; verify actual box-score distribution
+shape and the original approximately-one-FP consensus-close criterion. If any
+further substitution is needed, propose it and stop for approval. Record the
+verdict in docs/T2_ACCEPTANCE.json and STATUS.md, then commit."
