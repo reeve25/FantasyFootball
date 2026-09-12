@@ -1,6 +1,6 @@
 # Shared system status
 
-Updated 2026-09-10, 10:27 PM America/Los_Angeles.
+Updated 2026-09-12.
 
 Production: C:\Users\reeve\Documents\FantasyFootball\ff.py
 One local Git repository; no remote or publication. Existing sources and engine
@@ -161,3 +161,58 @@ installs, and the full engine runs there — selftest and a live-roster trade
 both completed. Details and the superseded traps are in the 23:00 UTC entry
 above and in docs/TRAPS.md. Egress has not been stable across sessions;
 re-test rather than assuming it.
+
+## 2026-09-12 — Planning-kit reconciliation (docs merge, no engine changes)
+
+A new planning kit (ADVISOR_SPEC.md, TICKETS.md, SESSION_LOG.md at repo root)
+was merged into the existing docs. One source of truth, zero duplication:
+
+- docs/FORECASTING.md created from ADVISOR_SPEC.md sections 2–3: the
+  market-anchored prediction method (anchor/adjust/blend/output/evaluate),
+  assumption registry format, conservative blending with its 15% cap and
+  anti-double-count rule, and the backtest/accuracy-measurement loop.
+- ADVISOR_SPEC.md's other sections are superseded rather than copied
+  verbatim, to avoid a second copy of the same facts: its goal statement
+  (section 1) by BRIEF.md's own "League and objective"; its data inventory
+  (section 4) by this file's 2026-09-11 entries and docs/TRAPS.md, which
+  already cover the market-history writer, name-alias resolution, and
+  resolution_status in more current detail; its build-order pointer
+  (section 6) by docs/TICKETS.md; its Decision Log (section 7) by this
+  file going forward — the one existing row is carried forward below; and
+  its session-end protocol (section 8) by AGENTS.md's Ticket work section.
+  ADVISOR_SPEC.md is deleted.
+- TICKETS.md moved to docs/TICKETS.md. T1 ("spec bootstrap: create this file
+  structure") is deleted — this reconciliation completes it. Ticket file
+  paths and module names were checked against the real repo: T2/T3/T5's
+  proposed new modules (advisor_runtime/market_anchor.py, assumptions.py,
+  backtest.py) sit correctly alongside the existing market_sources.py/
+  sleeper_live.py/trade_search.py. T4's and T7's vague "wire into the
+  evaluator" / "stale-projection logic already exists" pointers were
+  replaced with the actual functions: `_projection_for_week()` and
+  `evaluate_trade()` in advisor_runtime/advisor.py for T4,
+  `evidence_freshness()` / `CONFIG["snapshot_ttl_minutes"]` for T7. Two
+  things stayed marked uncertain rather than guessed: T4's exact mechanism
+  for a projection-source switch, and T5's source for realized/actual
+  weekly stat lines (no existing module fetches final box scores).
+- SESSION_LOG.md (header row only, no entries) folded into this file:
+  ticket-session summaries now get a dated entry here instead of a separate
+  table. Its Decision Log row from ADVISOR_SPEC.md section 7 is carried
+  forward: 2026-09-12 — repo is source of truth, agents interchangeable,
+  because session limits on Astra/Claude Code make chat-memory workflows
+  die on switch. SESSION_LOG.md is deleted.
+- Build order: T2 → T3 → T4 → T5 (market anchor, assumption registry, wire
+  into evaluator, backtest harness) before T6, the delta table, which is
+  deferred.
+
+**Conflict logged, not resolved.** ADVISOR_SPEC.md's assumption registry
+assigns each assumption an explicit confidence value (0–1) and describes
+injury/workload risk as a registered "P(active) distribution." BRIEF.md's
+evidence-quality rules say "Do not invent calibrated confidence percentages
+or manager acceptance probabilities." Whether an internal blending weight
+(`confidence_i` in `adjusted = anchor + SUM(confidence_i * delta_i)`) is the
+kind of thing that rule means to forbid, or whether the rule is about claims
+made to Reeve rather than internal pipeline parameters, is not decided here.
+docs/FORECASTING.md transcribes the method as specified without resolving
+this. Per BRIEF.md's precedence: until this is decided, no session should
+present an assumption's confidence value to Reeve as a calibrated
+probability.
