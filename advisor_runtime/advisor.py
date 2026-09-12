@@ -2049,6 +2049,7 @@ def build_packet(
             projection_universe=list((current.get("players") or {}).values()),
         )
         packet["market_evidence"] = market
+        warnings[:0] = market.get("coverage_warnings") or []
         if (
             market.get("source_status", {}).get("sports_game_odds")
             != "live"

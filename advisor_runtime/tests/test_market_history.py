@@ -326,6 +326,96 @@ class MarketHistoryTests(unittest.TestCase):
         self.assertEqual(len(projection_rows), 1)
         self.assertEqual(projection_rows[0]["player_id"], "1")
 
+    def test_write_time_gate_bridges_provider_and_engine_spelling_via_alias(self):
+        """A provider/engine name mismatch beyond punctuation needs the alias file.
+
+        Without it, 'Cameron Ward' (provider) never joins 'Cam Ward' (engine)
+        and a lined-but-unprojected player is wrongly dropped by the gate.
+        """
+        source = payload()
+        source["data"][0]["players"]["p1"] = {"name": "Cameron Ward"}
+        universe = [
+            {"pid": "1", "name": "Cam Ward", "live_week_projection": None, "live_projection_stats": {}},
+        ]
+        with mock.patch.object(
+            market_sources, "load_name_aliases", return_value={"cameron ward": "cam ward"}
+        ):
+            result = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME, universe)
+        projection_rows = [row for row in self.rows(result["path"]) if row["row_type"] == "projection"]
+        self.assertEqual(len(projection_rows), 1)
+        self.assertEqual(projection_rows[0]["player_id"], "1")
+
+    def test_read_time_match_bridges_provider_and_engine_spelling_via_alias(self):
+        source = payload()
+        source["data"][0]["players"]["p1"] = {"name": "Cameron Ward"}
+        response = mock.Mock()
+        response.json.return_value = source
+        with (
+            mock.patch.object(
+                market_sources, "load_name_aliases", return_value={"cameron ward": "cam ward"}
+            ),
+            mock.patch.object(market_sources.requests, "get", return_value=response),
+        ):
+            result = market_sources.sports_game_odds([{"name": "Cam Ward"}])
+        self.assertIn("cam ward", result["players"])
+        self.assertEqual(result["provider_identity"].get("cam ward"), "p1")
+
+    def test_focused_market_packet_flags_unresolved_no_match(self):
+        source = payload()  # only "Focus Player" (p1) is named in the feed
+        response = mock.Mock()
+        response.json.return_value = source
+        players = [{"name": "Nobody Here", "pid": "99", "live_week_projection": 5.0}]
+        with mock.patch.object(market_sources.requests, "get", return_value=response):
+            market = market_sources.focused_market_packet(players)
+        status = market["players"]["Nobody Here"]["resolution_status"]
+        self.assertEqual(status["flags"], ["unresolved_no_match"])
+        self.assertFalse(status["resolved"])
+        self.assertEqual(market["coverage_warnings"], [])
+
+    def test_focused_market_packet_flags_resolved_no_projection(self):
+        source = payload()
+        response = mock.Mock()
+        response.json.return_value = source
+        players = [{"name": "Focus Player", "pid": "1", "live_week_projection": None}]
+        with mock.patch.object(market_sources.requests, "get", return_value=response):
+            market = market_sources.focused_market_packet(players)
+        status = market["players"]["Focus Player"]["resolution_status"]
+        self.assertTrue(status["resolved"])
+        self.assertFalse(status["has_projection"])
+        self.assertEqual(status["flags"], ["resolved_no_projection"])
+
+    def test_focused_market_packet_flags_and_warns_on_lost_book_coverage(self):
+        """A player with valid lines last fetch and none this fetch is the loudest signal.
+
+        The provider still names the player this fetch (under the same
+        supported market) -- only every bookmaker line has gone unavailable.
+        That keeps them "resolved" so the loss reads as lost_book_coverage,
+        not as a fresh unresolved_no_match.
+        """
+        players = [{"name": "Focus Player", "pid": "1", "live_week_projection": 10.0}]
+        first_response = mock.Mock()
+        first_response.json.return_value = payload()  # valid book-a/book-b lines for p1
+        with mock.patch.object(market_sources.requests, "get", return_value=first_response):
+            first = market_sources.focused_market_packet(players, force_refresh=True)
+        self.assertEqual(first["players"]["Focus Player"]["resolution_status"]["flags"], [])
+        self.assertEqual(first["coverage_warnings"], [])
+
+        second_source = payload({
+            "prop": prop(books={"book-a": {"overUnder": 50.5, "available": False}}),
+        })
+        second_response = mock.Mock()
+        second_response.json.return_value = second_source
+        with mock.patch.object(market_sources.requests, "get", return_value=second_response):
+            second = market_sources.focused_market_packet(players, force_refresh=True)
+
+        self.assertFalse(second["players"]["Focus Player"]["sportsbooks"])
+        status = second["players"]["Focus Player"]["resolution_status"]
+        self.assertTrue(status["resolved"])
+        self.assertEqual(status["lost_book_coverage_since_previous_snapshot"], True)
+        self.assertEqual(status["flags"], ["lost_book_coverage"])
+        self.assertEqual(len(second["coverage_warnings"]), 1)
+        self.assertIn("Focus Player", second["coverage_warnings"][0])
+
     def test_every_fresh_fetch_records_engine_time_and_force_refresh_bypasses_cache(self):
         first_payload = payload()
         second_payload = copy.deepcopy(first_payload)

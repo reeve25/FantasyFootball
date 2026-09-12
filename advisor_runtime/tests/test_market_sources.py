@@ -20,6 +20,42 @@ import market_sources  # noqa: E402
 from test_advisor_v2 import fixture_live_context, fixture_snapshot  # noqa: E402
 
 
+class NameResolutionTests(unittest.TestCase):
+    def test_normalize_name_drops_apostrophes_and_periods_without_a_word_break(self):
+        self.assertEqual(market_sources.normalize_name("De'Von Achane"), "devon achane")
+        self.assertEqual(market_sources.normalize_name("Devon Achane"), "devon achane")
+        self.assertEqual(market_sources.normalize_name("O.J. Howard"), "oj howard")
+        self.assertEqual(market_sources.normalize_name("OJ Howard"), "oj howard")
+        self.assertEqual(market_sources.normalize_name("A.J. Brown"), "aj brown")
+
+    def test_normalize_name_still_splits_on_other_punctuation(self):
+        # Hyphens and other separators still become word breaks -- only
+        # apostrophes and periods are dropped outright.
+        self.assertEqual(market_sources.normalize_name("Jacory Croskey-Merritt"), "jacory croskey merritt")
+
+    def test_normalize_name_drops_non_ascii_apostrophe_variants(self):
+        self.assertEqual(market_sources.normalize_name("De’Von Achane"), "devon achane")
+
+    def test_resolve_provider_name_falls_back_to_normalized_form(self):
+        self.assertEqual(
+            market_sources.resolve_provider_name("Random Guy", {"cameron ward": "cam ward"}),
+            "random guy",
+        )
+
+    def test_resolve_provider_name_applies_alias(self):
+        aliases = {"cameron ward": "cam ward"}
+        self.assertEqual(
+            market_sources.resolve_provider_name("Cameron Ward", aliases), "cam ward"
+        )
+
+    def test_load_name_aliases_seeds_the_real_17_mismatch_classes(self):
+        aliases = market_sources.load_name_aliases()
+        self.assertEqual(aliases.get("cameron ward"), "cam ward")
+        self.assertEqual(aliases.get(market_sources.normalize_name("Jo'Quavious Marks")), "woody marks")
+        self.assertEqual(aliases.get("chigoziem okonokwo"), "chig okonkwo")
+        self.assertNotIn("devon achane", aliases)  # punctuation alone resolves this one
+
+
 class MarketLabelTests(unittest.TestCase):
     def _provider_summary(self, lines, fair_line, stat="receiving_yards"):
         payload = {
@@ -183,6 +219,40 @@ class MarketLabelTests(unittest.TestCase):
         self.assertTrue(
             any("asymmetric" in warning.lower() for warning in packet["warnings"])
         )
+
+    def test_lost_book_coverage_warning_is_surfaced_first(self):
+        snapshot = fixture_snapshot()
+        market = {
+            "source_status": {
+                "sports_game_odds": "live",
+                "pickem_boards": "manual_browser_on_request",
+                "the_odds_api": "not_requested",
+            },
+            "players": {
+                "Travis Etienne": {
+                    "sportsbooks": None,
+                    "projection_update": None,
+                    "resolution_status": {
+                        "resolved": True,
+                        "has_projection": True,
+                        "lost_book_coverage_since_previous_snapshot": True,
+                        "flags": ["lost_book_coverage"],
+                    },
+                },
+            },
+            "coverage_warnings": [
+                "Lost sportsbook coverage: Travis Etienne had posted lines in "
+                "the previous market-history snapshot and has none in this fetch."
+            ],
+        }
+        with mock.patch.object(advisor, "focused_market_packet", return_value=market):
+            packet = advisor.build_packet(
+                "Compare Travis Etienne and Tee Higgins",
+                snapshot,
+                live_context=fixture_live_context(snapshot),
+                include_market=True,
+            )
+        self.assertEqual(packet["warnings"][0], market["coverage_warnings"][0])
 
 
 if __name__ == "__main__":
