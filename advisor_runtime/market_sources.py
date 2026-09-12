@@ -156,10 +156,26 @@ def _write_sports_game_odds_snapshot(
     the under side and the price at write time. ``row_type`` distinguishes the
     two row shapes sharing this file: "line" (book-posted) and "projection"
     (the engine's own value for that player at the same fetch).
+
+    Projection rows are gated to players this fetch actually says something
+    about: those with a projection value, and those with at least one posted
+    book line in this same fetch. A player with a posted line and no
+    projection is kept deliberately -- that gap is the signal, not noise.
+    Everyone else in the engine's player pool is dropped. Ungated, a fetch
+    wrote a row for all ~12,200 players in the Sleeper database and 96% of
+    them carried ``points: null`` with empty ``stats``.
+
+    The two row shapes do not share an id namespace: line rows carry the
+    provider's playerID ("CAMERON_WARD_1_NFL"), projection rows the engine's
+    pid ("1"). They are bridged on ``normalize_name`` of the provider's own
+    event players map -- the same join ``sports_game_odds`` uses at read time,
+    so the gate keeps exactly the players a reader could later match.
     """
     rows: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    provider_names: dict[str, str] = {}
     for event in payload.get("data") or []:
         event_id = str(event.get("eventID") or "")
+        event_players = event.get("players") or {}
         for odd in (event.get("odds") or {}).values():
             market = SPORTS_GAME_ODDS_STATS.get(str(odd.get("statID") or ""))
             side = str(odd.get("sideID") or "")
@@ -172,6 +188,20 @@ def _write_sports_game_odds_snapshot(
             ):
                 continue
             player_id = str(odd["playerID"])
+            provider = event_players.get(odd.get("playerID")) or {}
+            provider_names.setdefault(
+                player_id,
+                normalize_name(
+                    str(
+                        provider.get("name")
+                        or " ".join(
+                            part
+                            for part in (provider.get("firstName"), provider.get("lastName"))
+                            if part
+                        )
+                    )
+                ),
+            )
             for book, raw in (odd.get("byBookmaker") or {}).items():
                 line = _number(raw.get("overUnder"))
                 if raw.get("available") is False or line is None:
@@ -189,8 +219,13 @@ def _write_sports_game_odds_snapshot(
                     "price": _number(raw.get("odds")),
                     "fetched_at_utc": fetched_at_utc,
                 }
+    lined_names = {provider_names.get(row["player_id"], "") for row in rows.values()}
+    lined_names.discard("")
     projection_rows = []
     for player in players or []:
+        points = _number(player.get("live_week_projection"))
+        if points is None and normalize_name(str(player.get("name") or "")) not in lined_names:
+            continue
         stats = player.get("live_projection_stats")
         projection_rows.append(
             {
@@ -199,7 +234,7 @@ def _write_sports_game_odds_snapshot(
                 "player_id": str(player.get("pid") or ""),
                 "player_name": str(player.get("name") or ""),
                 "week": player.get("current_week"),
-                "points": _number(player.get("live_week_projection")),
+                "points": points,
                 "stats": dict(stats) if isinstance(stats, dict) else {},
                 "fetched_at_utc": fetched_at_utc,
             }

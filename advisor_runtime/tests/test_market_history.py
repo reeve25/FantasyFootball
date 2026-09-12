@@ -255,6 +255,77 @@ class MarketHistoryTests(unittest.TestCase):
         # The provider-facing selection is unaffected: only the requested player comes back.
         self.assertEqual(set(result["players"]), {"focus player"})
 
+    def test_projection_rows_are_gated_to_projected_or_lined_players(self):
+        """Only players this fetch says something about get a projection row.
+
+        The gate keeps a projected player with no posted line, and keeps a
+        lined player whose projection is missing -- that gap is the signal.
+        A player with neither is dropped, which is what stopped a fetch from
+        writing ~11,800 empty rows for the whole Sleeper player database.
+        """
+        response = mock.Mock()
+        response.json.return_value = payload()  # posts lines for p1 "Focus Player" only
+        universe = [
+            {"pid": "1", "name": "Focus Player", "live_week_projection": 10.0,
+             "live_projection_stats": {"rec": 4.0}},          # lined + projected
+            {"pid": "2", "name": "Other Player", "live_week_projection": None,
+             "live_projection_stats": {}},                    # neither -> dropped
+            {"pid": "3", "name": "Bench Guy", "live_week_projection": 3.0,
+             "live_projection_stats": {}},                    # projected, no line
+            {"pid": "4", "name": "Practice Squad", "live_week_projection": None,
+             "live_projection_stats": {}},                    # neither -> dropped
+        ]
+        with mock.patch.object(market_sources.requests, "get", return_value=response):
+            result = market_sources.sports_game_odds(
+                [{"name": "Focus Player"}], projection_universe=universe
+            )
+
+        rows = self.rows(result["line_snapshot"]["path"])
+        projection_rows = [row for row in rows if row["row_type"] == "projection"]
+        self.assertEqual(
+            {row["player_name"] for row in projection_rows}, {"Focus Player", "Bench Guy"}
+        )
+        self.assertEqual(result["line_snapshot"]["projection_rows"], 2)
+        # Line rows are untouched by the gate.
+        self.assertEqual(
+            result["line_snapshot"]["line_rows"],
+            len([row for row in rows if row["row_type"] == "line"]),
+        )
+
+    def test_lined_player_with_no_projection_is_kept_as_a_null_row(self):
+        """A posted line with no engine projection must survive the gate."""
+        source = payload()  # p1 "Focus Player" has book lines
+        universe = [
+            {"pid": "1", "name": "Focus Player", "live_week_projection": None,
+             "live_projection_stats": {}},
+            {"pid": "2", "name": "Nobody At All", "live_week_projection": None,
+             "live_projection_stats": {}},
+        ]
+        result = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME, universe)
+        rows = self.rows(result["path"])
+        projection_rows = [row for row in rows if row["row_type"] == "projection"]
+
+        self.assertEqual(len(projection_rows), 1)
+        self.assertEqual(projection_rows[0]["player_name"], "Focus Player")
+        self.assertIsNone(projection_rows[0]["points"])
+        self.assertEqual(projection_rows[0]["stats"], {})
+        self.assertEqual(result["projection_rows"], 1)
+
+    def test_gate_matches_provider_names_case_and_punctuation_insensitively(self):
+        """The line/projection bridge is normalize_name, not raw equality."""
+        source = payload()
+        source["data"][0]["players"]["p1"] = {"firstName": "Focus", "lastName": "Player"}
+        universe = [
+            {"pid": "1", "name": "FOCUS  player.", "live_week_projection": None,
+             "live_projection_stats": {}},
+        ]
+        result = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME, universe)
+        projection_rows = [
+            row for row in self.rows(result["path"]) if row["row_type"] == "projection"
+        ]
+        self.assertEqual(len(projection_rows), 1)
+        self.assertEqual(projection_rows[0]["player_id"], "1")
+
     def test_every_fresh_fetch_records_engine_time_and_force_refresh_bypasses_cache(self):
         first_payload = payload()
         second_payload = copy.deepcopy(first_payload)
