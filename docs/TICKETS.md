@@ -13,7 +13,19 @@
 # STATUS.md. T1 (spec bootstrap: create this file structure) is complete and
 # deleted from this list.
 
-## T2 — Market-anchored projection converter  [CORE]
+## T2 — Market-anchored projection converter  [CORE; split T2a/T2b]
+
+T2a (2026-09-12): conditional offline converter implemented; eight new unit
+tests pass through `ff.py selftest`. See docs/MARKET_ANCHOR.md for assumptions
+and supported inputs. T2 remains incomplete until T2b passes.
+
+T2b: obtain verified identity/event metadata, team-total allocations and
+closing-reference/final-box-score evidence for three players in one settled
+week; run the original numerical acceptance below and refine the converter
+if needed. Existing history alone does not establish these references.
+Complete T2b before starting T3. Do not treat the synthetic tests as empirical
+validation or the conditional stat variance as calibrated forecast variance.
+
 Build `advisor_runtime/market_anchor.py`: from an SGO snapshot (lines + BOTH
 prices, see docs/MARKET_HISTORY.md) reconstruct market-implied fantasy points
 per player-week under the league's scoring rules. De-vig prices to implied
