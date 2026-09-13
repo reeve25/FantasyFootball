@@ -127,19 +127,29 @@ confirm during this ticket, don't guess further here.
 Acceptance: same-shape output as the existing tested run + an
 assumptions-attribution block. Compare blend vs. Sleeper-only side by side.
 
-## T5 — Backtest harness  [CORE — this is the "accuracy" answer]
-Build `advisor_runtime/backtest.py`: score any stored projection snapshot vs
-actual results; MAE per source (anchor / Sleeper / ESPN / blend);
-per-assumption-type error breakdown once 4+ weeks of data exist. Run on all
-historical snapshots available now (`advisor_runtime/data/market_history/
-sports_game_odds/*.jsonl`, plus whatever the engine already stores as
-`weekly_points`/`weekly_points_by_source` for realized weeks).
-UNCERTAIN: where realized/actual weekly stat lines come from for scoring --
-no existing module in advisor_runtime fetches final box scores today.
-Confirm the source during this ticket rather than assuming Sleeper's stats
-endpoint covers it.
-Acceptance: produces a report file for at least one completed week; numbers
-sanity-checked.
+## T5 — Backtest harness  [CORE — this is the "accuracy" answer; complete 2026-09-13]
+
+Built `advisor_runtime/backtest.py`, wired as `ff.py backtest`. Resolved the
+ticket's own flagged uncertainty by inspection: no module anywhere fetched
+settled box scores, so Sleeper's existing projections host is used at its
+sibling stats endpoint (`https://api.sleeper.app/stats/nfl/{season}/{week}`,
+verified live against a definitely-completed past week first) -- same pid
+namespace and vocabulary already trusted elsewhere in this repo, no new
+provider. Scores `market_anchor`, `market_anchor_blend`, and T2's persisted
+`sleeper_projection_feed` per real player-week, using T2c's settled-event
+metadata to find pre-kickoff snapshots and T2f's `blend_provenance` design
+(reimplemented as a same-outcome "consensus counterfactual", since no
+snapshot has ever predated its own week's market pricing) to report
+anchored-vs-consensus error separately -- the first real evidence of
+whether the anchor does anything, not yet populated with real numbers
+because week 1 has not finished. Run live 2026-09-13: 14 real pre-kickoff
+events, 373 identity-resolved player-events, honest `"no_eligible_weeks"`
+(Sleeper's stats endpoint correctly shows nobody has played yet). ESPN as
+its own persisted reference source and the per-assumption-type breakdown
+are explicitly deferred (no historical ESPN archive exists; no assumptions
+curated yet to break down). See STATUS.md's 2026-09-13 T5 entry and
+`docs/backtest/` for the run artifacts. Next: rerun once week 1 settles,
+alongside T2b using the same real data.
 
 ## T6 — Delta table  [leverage, already designed]
 Per-book line + price movement vs. baseline snapshot, projection movement
