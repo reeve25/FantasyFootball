@@ -13,7 +13,7 @@
 # STATUS.md. T1 (spec bootstrap: create this file structure) is complete and
 # deleted from this list.
 
-## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d]
+## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d/T2e]
 
 T2a (2026-09-12): conditional offline converter implemented; eight new unit
 tests pass through `ff.py selftest`. See docs/MARKET_ANCHOR.md for assumptions
@@ -31,6 +31,19 @@ snapshot has lines for, never a full ROS range (so `evaluate_trade`'s
 multi-week rollup still comes back null even though the per-week anchor
 does not). Still provisional, not T2b-validated. See STATUS.md's 2026-09-12
 T2d entry and docs/T2_ACCEPTANCE.json's `t2d_check`.
+
+T2e (2026-09-13): parsed SportsGameOdds's aggregate anytime-TD market into
+an expected-TDs value and added it to the anchor as an OPTIONAL stat (new
+`convert_snapshot` parameter, backward compatible) -- present when the
+market is posted and the league's rush_td/rec_td coefficients agree,
+gracefully degraded to yardage-only (never null, never fabricated)
+otherwise. Found along the way: the market is genuinely one-sided (no book
+ever prices the "under" side) and, in live data, posts at a 1.5 ("2+ TDs")
+threshold rather than the ticket's assumed 0.5 ("anytime") -- both changed
+the conversion design; see STATUS.md's 2026-09-13 T2e entry for the full
+reasoning. All 6 real players in the acceptance run moved from 33%-56% to
+54%-88% of the default projection. `rec`/secondary rushing volume and T2b
+validation remain open. See docs/T2_ACCEPTANCE.json's `t2e_check`.
 
 T2c (2026-09-12): user-authorized prerequisite before T2b, completed. New line
 rows retain provider player names and event time/week/team/status metadata

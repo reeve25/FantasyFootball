@@ -64,3 +64,23 @@ by `market_anchor_projection.compute_projection_sources`), never per-player,
 and does not satisfy T2b -- see STATUS.md's T2d entry for full sourcing and
 why cross-book line dispersion and alt-line quantile fitting were checked
 and rejected as sources first.
+
+T2e (2026-09-13) added `touchdown_distribution(line, price)` and an
+`optional_stats` parameter to `convert_snapshot` (default `None`, fully
+backward compatible). The SportsGameOdds "touchdowns" (anytime-TD) market is
+genuinely one-sided -- its paired `under` oddID exists in the raw payload
+but never carries a real bookmaker price -- so `touchdown_distribution` uses
+the single posted price's `implied_probability` directly (no de-vig
+partner) under a Poisson touchdown-count assumption, solved via
+`_poisson_mean_for_threshold` (the same general root-finder
+`stat_distribution`'s own Poisson branch now shares, refactored out rather
+than duplicated). Real live data posts this market at a 1.5 ("2+ TDs")
+threshold, not the anytime (0.5, "1+") case a naive `-ln(1-P)` closed form
+would assume -- the general solve handles either. `optional_stats` differs
+from `required_stats`: an optional stat's absence never nulls `anchor_fp`
+or joins `missing_stats`; it's tracked in a new `optional_missing` list and
+the row's `confidence` becomes `"yardage_only"` instead. See STATUS.md's
+T2e entry for the full Decision Log, including how the TD scoring
+coefficient is resolved from real league config with an explicit
+degrade-if-mismatched rule (`market_anchor_projection.
+resolve_touchdown_scoring`).

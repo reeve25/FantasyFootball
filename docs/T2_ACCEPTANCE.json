@@ -201,5 +201,82 @@
     "blend_matches_anchor_reason": "assumption_registry is empty (no curated assumptions exist for these players) so market_anchor_blend == market_anchor for all 6, correctly per T3's apply() contract.",
     "trade_rollup_null_reason": "evaluate_trade averages every week from the trade's effective week (2, since week 1 is already in progress) through week 17 (CONFIG[\"season_end_week\"]). A single market fetch only ever has lines for the current week's games; weekly_points_by_source[\"market_anchor\"] therefore has only a \"1\" entry, and _roster_average requires every week in range to resolve. This is a structural mismatch between single-week market coverage and a multi-week evaluator, not an SD gap -- no SD fix can supply weeks 2-17 data that does not exist. Deferred to a future ticket per the user's 2026-09-12 direction; not fixed in T2d.",
     "full_test_suite": "python ff.py --selftest: 100 + 31 passing (131 total, 20 new tests)"
+  },
+  "t2e_check": {
+    "checked_at_utc": "2026-09-13T00:52:29.167417+00:00",
+    "ticket": "T2e: parse anytime-TD market into expected TDs",
+    "verdict": "PASS",
+    "snapshot": "advisor_runtime/data/market_history/sports_game_odds/2026-09-13T005229.167417Z-9891f0ec54024f31ac865dbe4bf7cfc4.jsonl",
+    "command": "ff.py --full trade --give \"Trevor Lawrence\" --give \"Javonte Williams\" --give \"Drake London\" --get \"Justin Herbert\" --get \"Kenneth Walker III\" --get \"Rome Odunze\" --projection-source market_anchor",
+    "conversion_method": "General Poisson threshold solve (market_anchor._poisson_mean_for_threshold, reused from stat_distribution): P(Poisson(mu) > floor(line)) = market-implied P(over). At line 0.5 this is exactly the ticket's suggested closed form lambda=-ln(1-P); real live data instead posts line=1.5 (2+ TDs, verified against the raw SGO payload for every player checked), so the general root-find was used instead of hardcoding -ln(1-P), which would have understated expected TDs by roughly half. See STATUS.md's T2e Decision Log.",
+    "one_sided_market_finding": "The anytime-TD market's paired 'under' oddID exists structurally in the raw SGO payload but its byBookmaker is always empty -- no book posts a genuine two-sided price. The single posted price's implied_probability is used as-is (no de-vig partner exists to remove the bookmaker's margin against), a stated simplification logged as a small systematic upward bias on the resulting lambda, not a claim of a vig-free probability.",
+    "scoring_source": "Real league scoring_settings (rush_td=6.0, rec_td=6.0, confirmed equal); resolve_touchdown_scoring degrades to td_scoring_usable=False (no TD priced for anyone) if they ever differ or either is absent. Nothing hardcoded.",
+    "graceful_degradation": "Verified separately by unit test (test_market_anchor.py ConvertSnapshotOptionalTdTests, test_market_anchor_projection.py test_t2e_td_absent_degrades_to_yardage_only_not_null): a player-week with required yardage complete but no posted anytime-TD market gets confidence='yardage_only', optional_missing=['td'], and a non-null yardage-only anchor_fp -- never null, never a fabricated TD value.",
+    "before_after": [
+      {
+        "pid": "7523",
+        "name": "Trevor Lawrence",
+        "pos": "QB",
+        "default": 17.7888,
+        "t2d_yardage_only": 9.324828455146765,
+        "t2e_with_td": 11.343567380586032,
+        "t2d_pct_of_default": 52.4,
+        "t2e_pct_of_default": 63.8
+      },
+      {
+        "pid": "6797",
+        "name": "Justin Herbert",
+        "pos": "QB",
+        "default": 18.6693,
+        "t2d_yardage_only": 9.44235279872711,
+        "t2e_with_td": 10.79056709934593,
+        "t2d_pct_of_default": 50.6,
+        "t2e_pct_of_default": 57.8
+      },
+      {
+        "pid": "7588",
+        "name": "Javonte Williams",
+        "pos": "RB",
+        "default": 16.3238,
+        "t2d_yardage_only": 8.606690927514263,
+        "t2e_with_td": 13.978909992081062,
+        "t2d_pct_of_default": 52.7,
+        "t2e_pct_of_default": 85.6
+      },
+      {
+        "pid": "8151",
+        "name": "Kenneth Walker III",
+        "pos": "RB",
+        "default": 14.1764,
+        "t2d_yardage_only": 7.96776747423421,
+        "t2e_with_td": 12.480023592975733,
+        "t2d_pct_of_default": 56.2,
+        "t2e_pct_of_default": 88.0
+      },
+      {
+        "pid": "8112",
+        "name": "Drake London",
+        "pos": "WR",
+        "default": 13.9302,
+        "t2d_yardage_only": 5.508535768675962,
+        "t2e_with_td": 7.6823966739311595,
+        "t2d_pct_of_default": 39.5,
+        "t2e_pct_of_default": 55.1
+      },
+      {
+        "pid": "11620",
+        "name": "Rome Odunze",
+        "pos": "WR",
+        "default": 11.7348,
+        "t2d_yardage_only": 3.9196883895142225,
+        "t2e_with_td": 6.282756437220454,
+        "t2d_pct_of_default": 33.4,
+        "t2e_pct_of_default": 53.5
+      }
+    ],
+    "plausibility_check": "Every one of the 6 players moved materially closer to the default (sleeper+espn) projection: t2d (yardage-only) 33%-56% of default -> t2e (yardage+TD) 54%-88% of default. None exceeds the default (still a partial anchor: missing receptions, fumbles, two-point conversions) and none is negative or wildly larger than default.",
+    "all_players_got_a_real_td_component": true,
+    "full_test_suite": "python ff.py --selftest: 123 + 31 passing (154 total, 23 new tests). One unrelated pre-existing flaky test (test_focused_market_packet_flags_and_warns_on_lost_book_coverage, logged in the T2d entry, fails ~20% of the time on any commit) failed once and passed on immediate re-run.",
+    "default_behavior_unchanged": "Confirmed: convert_snapshot's new optional_stats parameter defaults to None (no behavior change for any existing caller); the pre-existing test suite (T2a-T2d) passes unmodified against the changed convert_snapshot. ff.py trade with no --projection-source flag was re-run and its perspective_delta_pg matched the pre-T2e value exactly."
   }
 }

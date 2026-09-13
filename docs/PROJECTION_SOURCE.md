@@ -123,3 +123,27 @@ requires every week in range to resolve. No SD fix addresses this -- it's a
 structural mismatch between single-week market coverage and a multi-week
 evaluator, left open for a future ticket (not T5, per STATUS.md's T2d
 next-prompt, unless it blocks T5's own acceptance).
+
+## T2e re-verification (2026-09-13): the anchor includes touchdowns now
+
+`market_anchor` was yardage-only through T2d because `REQUIRED_STATS_BY_
+POSITION` had dropped `rec_td`/`rush_td` (unfulfillable -- SGO only posts an
+aggregate anytime-TD market). T2e parses that aggregate market into an
+expected-TDs value and adds it as an OPTIONAL component (present when
+posted, degrades to yardage-only rather than null when not -- see
+STATUS.md's T2e entry and docs/MARKET_ANCHOR.md). Same 6 players, same
+command shape, live 2026-09-13 (docs/T2_ACCEPTANCE.json's `t2e_check`):
+
+| player | pos | default | T2d (yardage-only) | T2e (yardage+TD) |
+| --- | --- | --- | --- | --- |
+| Trevor Lawrence | QB | 17.79 | 9.32 (52%) | 11.34 (64%) |
+| Justin Herbert | QB | 18.67 | 9.44 (51%) | 10.79 (58%) |
+| Javonte Williams | RB | 16.32 | 8.61 (53%) | 13.98 (86%) |
+| Kenneth Walker III | RB | 14.18 | 7.97 (56%) | 12.48 (88%) |
+| Drake London | WR | 13.93 | 5.51 (40%) | 7.68 (55%) |
+| Rome Odunze | WR | 11.73 | 3.92 (33%) | 6.28 (54%) |
+
+All 6 got a real, non-fabricated TD component this run and moved materially
+closer to the default. The trade-level multi-week rollup limitation
+described above is unchanged by T2e -- it's about weeks 2-17 having no
+market data at all, not about which stats the anchor includes.

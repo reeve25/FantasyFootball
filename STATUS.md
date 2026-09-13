@@ -644,4 +644,159 @@ substituting synthetic actuals. Run T5's acceptance (a report file for at
 least one completed week, numbers sanity-checked). If acceptance cannot be
 satisfied as written, stop for approval rather than substitute. Run
 selftests, update STATUS.md with results/blockers and commit. Do not start
-T6 or T7."
+T6 or T7." (superseded below -- see the 2026-09-13 T2e entry for the
+current one; kept for history)
+
+## 2026-09-13 — T2e complete: anytime-TD market parsed into expected TDs
+
+T2d made per-player market anchors non-null but yardage-only, because
+`REQUIRED_STATS_BY_POSITION` had been narrowed to drop `rec_td`/`rush_td`
+(which SportsGameOdds can never post -- see T2d's entry). T2e's job: parse
+the aggregate anytime-TD market SGO does post into an expected-TDs value and
+add it to the anchor, so market_anchor stops being a yardage-only fraction.
+
+### A finding that changed the design mid-ticket: the market is one-sided
+
+Inspecting the raw SGO payload directly (not just the written snapshot)
+showed the "touchdowns" market's paired opposing (`under`) oddID exists
+structurally but its `byBookmaker` is **always empty** -- no book posts a
+genuine two-sided price for this market. Every "over" price is a one-sided
+"yes, scores >= some threshold" quote with no partner to de-vig against.
+`market_anchor.stat_distribution` (used for every other market) requires
+both sides; it cannot be reused as-is. New function
+`touchdown_distribution(line, price)` uses the single posted price's
+`implied_probability` directly -- a stated simplification, not a claim of a
+vig-free probability (American-odds vig on a longshot "yes" price typically
+shades the payout worse than fair, which inflates the raw implied
+probability, giving this lambda a small, systematic, uncorrected upward
+bias -- no correction is invented without a second price).
+
+### Decision Log
+
+- **Poisson relationship, general form, not the ticket's suggested closed
+  form.** The ticket suggested `lambda = -ln(1 - P)`, the standard result
+  for `P(Poisson(lambda) >= 1)`. Real live data (checked for every player in
+  one fetch) posts the market at **line 1.5 (2+ TDs)**, not 0.5 (anytime,
+  1+) -- `-ln(1-P)` is only the line-0.5 special case and would have
+  **understated expected TDs by roughly half** for a typical everyday-usage
+  skill player if applied to a 1.5 line. Used the general solve instead:
+  `_poisson_mean_for_threshold(line, probability)` (refactored out of
+  `stat_distribution`'s own existing Poisson branch, so both markets share
+  one root-finder) solves `P(Poisson(mu) > floor(line)) = probability` via
+  the same `brentq` approach already used and tested for count markets. At
+  line 0.5 this reduces to exactly the ticket's closed form -- verified by
+  unit test. Stated assumption, per the ticket's own requirement: touchdown
+  scoring is treated as a Poisson process for one player-game (independent
+  scoring opportunities), the same model already used for two-sided count
+  markets (receptions).
+- **TD scoring weight from real league config, with an explicit
+  degrade-if-mismatched rule.** The anytime-TD market combines rushing and
+  receiving scores (never passing) with no per-position split, so it's only
+  fairly priceable with a single shared coefficient. `resolve_touchdown_
+  scoring(scoring)` checks the caller's real `rush_td`/`rec_td` values
+  (this league: both 6.0, confirmed) and only enables the TD component when
+  they agree; if they ever differ or either is absent, TD is not priced for
+  **anyone** that run (`td_scoring_usable=False`) rather than guessing which
+  coefficient to apply. Nothing hardcoded.
+- **Graceful degradation via a new "optional" stat concept in
+  `convert_snapshot`, not a second code path.** `market_anchor.
+  convert_snapshot` gained an `optional_stats` parameter (default `None`,
+  fully backward compatible -- T2a-T2d's tests pass unmodified). Unlike
+  `required_stats`, an optional stat's absence never nulls `anchor_fp` or
+  joins `missing_stats`; it contributes additively when present and is
+  recorded in a new `optional_missing` list when not, with `confidence`
+  becoming `"yardage_only"` (a new value) rather than `"incomplete"`. `"td"`
+  is passed as optional for every supported position (QB mostly via
+  rushing, since QBs essentially never receive) -- never required, per the
+  ticket's explicit graceful-degradation rule. No fallback (team-share or
+  otherwise) applies to an optional stat: a missing anytime-TD market
+  degrades, it is never invented.
+- **Kept the yardage/TD split in the same module boundary T2d established.**
+  `convert_snapshot` itself stays a pure, explicit-input conversion (now
+  with one more knob); the position-level "is TD priceable, and for whom"
+  policy lives one layer up in `market_anchor_projection.py`
+  (`resolve_touchdown_scoring`, `optional_stats_for`), consistent with
+  where T2d put `YARDAGE_SD_DEFAULTS`'s wiring.
+
+### Acceptance: run against the same 6 real players, 3 positions
+
+`ff.py --full trade --give "Trevor Lawrence" --give "Javonte Williams"
+--give "Drake London" --get "Justin Herbert" --get "Kenneth Walker III"
+--get "Rome Odunze" --projection-source market_anchor`, snapshot
+`2026-09-13T005229...jsonl`. Full record in docs/T2_ACCEPTANCE.json's
+`t2e_check`. Per-player week-1 anchor as a percentage of the existing
+default (sleeper+espn blend), before (T2d, yardage-only) and after (T2e,
+yardage+TD):
+
+| player | pos | default | T2d (% of default) | T2e (% of default) |
+| --- | --- | --- | --- | --- |
+| Trevor Lawrence | QB | 17.79 | 9.32 (52%) | 11.34 (64%) |
+| Justin Herbert | QB | 18.67 | 9.44 (51%) | 10.79 (58%) |
+| Javonte Williams | RB | 16.32 | 8.61 (53%) | 13.98 (86%) |
+| Kenneth Walker III | RB | 14.18 | 7.97 (56%) | 12.48 (88%) |
+| Drake London | WR | 13.93 | 5.51 (40%) | 7.68 (55%) |
+| Rome Odunze | WR | 11.73 | 3.92 (33%) | 6.28 (54%) |
+
+All 6 real players got a non-zero, non-fabricated TD component this run
+(`market_anchor_diagnostics` shows zero TD-specific rejections for any of
+them -- the anytime-TD market was posted and priced for all 6). Every
+player moved materially closer to consensus (33%-56% -> 54%-88% of
+default), none exceeds the default (still a partial anchor: no receptions,
+fumbles, or two-point conversions), none is negative or absurd.
+`market_anchor_blend` still equals `market_anchor` for all 6 -- no curated
+assumptions exist yet, the correct T3 result given nothing to blend with.
+
+**Graceful degradation verified separately** (unit tests, not this live
+run, since the market happened to be posted for all 6 players today): a
+player-week with complete yardage but no posted anytime-TD market gets
+`confidence="yardage_only"`, `optional_missing=["td"]`, and a real, non-null
+yardage-only `anchor_fp` -- never null, never a fabricated TD value. Also
+verified: a league whose `rush_td`/`rec_td` coefficients don't match never
+attempts to price TD for anyone (`td_scoring_usable=False`), rather than
+guessing which coefficient applies.
+
+**T2e verdict: PASS.** Test suite: `python ff.py --selftest`, 123 runtime +
+31 other tests (154 total) pass, including 23 new tests (5 for
+`touchdown_distribution`, 7 for `convert_snapshot`'s optional-stat handling,
+4 for `resolve_touchdown_scoring`, 3 for `optional_stats_for`, 4 more T2e
+cases in `compute_projection_sources`). One unrelated pre-existing flaky
+test (`test_focused_market_packet_flags_and_warns_on_lost_book_coverage`,
+already logged in T2d's entry) failed once during this session and passed
+immediately on re-run -- not a T2e regression. Default (no
+`--projection-source`) behavior reconfirmed byte-for-byte unchanged:
+`ff.py trade --give "Drake London" --get "Kenneth Walker III"` with no flag
+still returns `perspective_delta_pg: -0.0093`, identical to the T4 and T2d
+baselines.
+
+Blockers: none for T2e itself. Open for a future ticket, in the same shape
+as T2d left them: (a) reception counts and secondary rushing volume (WR/QB)
+are still not priced -- `anchor_fp` is a yardage+TD partial approximation,
+not a full scoring replica; (b) the multi-week trade-rollup gap (a single
+fetch only ever covers the current week, so `evaluate_trade`'s
+`perspective_delta_pg` under `--projection-source market_anchor`/`blend`
+still comes back null even though every per-player-week anchor is real);
+(c) T2b (real settled-week empirical validation of the yardage SDs)
+remains unvalidated and deferred, unchanged by this ticket; (d) the raw
+one-sided anytime-TD price's small systematic upward bias (no de-vig
+partner) is unquantified and uncorrected.
+
+Exact starting prompt for T2f (or T5, whichever the user picks next --
+this session does not choose):
+"Read BRIEF.md, STATUS.md, docs/FORECASTING.md, docs/TICKETS.md and
+docs/T2_ACCEPTANCE.json's t2e_check. market_anchor now prices yardage + an
+anytime-TD component for QB/RB/WR/TE; T2b (real settled-week validation)
+remains deferred, and reception counts/secondary rushing volume are still
+unpriced -- do not treat any of these as defects to fix without being
+explicitly asked. If asked to work T2f: scope it narrowly (e.g., receptions
+next, following the exact same optional-vs-required pattern T2e
+established) and confirm the scope before starting, since this repo's own
+docs don't yet name a T2f ticket. If asked to work T5 instead: build
+advisor_runtime/backtest.py scoring stored projection snapshots against
+actual results (MAE per source: anchor/Sleeper/ESPN/blend); the ticket
+flags where actual weekly stat lines would come from as uncertain -- no
+existing module fetches final box scores today, so resolve that by reading
+real code/APIs rather than guessing, and stop and report if no reliable
+local source exists rather than substituting synthetic actuals. Either way:
+one ticket only, run its acceptance check for real, if acceptance cannot be
+satisfied as written stop for approval rather than substitute, run
+selftests, update STATUS.md with results/blockers and commit."
