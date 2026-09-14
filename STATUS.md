@@ -1,6 +1,6 @@
 # Shared system status
 
-Updated 2026-09-14.
+Updated 2026-09-15.
 
 Production: C:\Users\reeve\Documents\FantasyFootball\ff.py
 One local Git repository; no remote or publication. Existing sources and engine
@@ -1386,3 +1386,135 @@ accumulated. T2b real per-player SD validation can now reuse this same
 session's fresh-finality machinery once someone picks it up. T6 (delta
 table)/T7 (conversational routing)/T8 (championship layer) remain not
 started, per the user's explicit scope instruction for this session.
+
+## 2026-09-15 -- Housekeeping: discover --mode WIP committed, T9 logged;
+## then T2b PASS: settled-week converter validation, unblocked at last
+
+### Housekeeping (not a ticket)
+
+Committed the discover `--mode ours|mutual` WIP (`BRIEF.md`,
+`advisor_runtime/trade_search.py`, `docs/TRADES.md`) that had sat
+uncommitted since before the 2026-09-14 T5 session, as instructed:
+`2a7fa52` "discover --mode WIP: preserve feature work; known issues
+logged". **Correction to the prior session's own report**: that entry
+claimed `ff.py`'s `--mode` argparse hunk and `discover(...)` call-site
+update were "untouched, byte-for-byte." That was true of the file's
+*content* at the time, but the 2026-09-14 commit (`be48a68`) staged and
+committed the ENTIRE `ff.py` file (`git add ff.py`), which swept in both
+the pre-existing `--mode` hunk and this session's own `backtest` changes
+together -- so that hunk is not actually separable into its own commit
+today without rewriting already-existing history, which was not done and
+should not be done without an explicit request. Nothing was lost or
+reverted; the discover feature's `ff.py` piece simply ended up bundled into
+`be48a68` instead of its own commit. Flagging this here so the commit
+history's actual shape is accurate, since a future reader diffing "the
+discover commit" alone would not find that hunk in it.
+
+Logged three verified defects found while reviewing that WIP as **T9** in
+docs/TICKETS.md (`ac661b7`), each confirmed against the actual code before
+writing the ticket (not taken on faith): (1) the `mode="ours"` sort's
+tie-break key uses `theirs` (counterparty delta), which reorders/demotes
+tied candidates by it -- contradicting the packet's own "never excludes or
+demotes" wording; (2) the contribution/`useful` check treats an unknown
+(`None`) `_roster_average` result as a pass rather than unverified,
+inverting BRIEF.md's "missing is unknown, never zero" rule; (3) zero test
+files anywhere in `advisor_runtime/tests` reference `trade_search` or
+`discover` -- confirmed by search, not assumed. Logging only; no fix
+applied, scope for a fix not yet decided.
+
+### T2b: settled-week converter validation -- PASS
+
+T2b was blocked from 2026-09-11 through 2026-09-14 purely on data
+availability (Week 1 hadn't finished, or the finality check itself was
+broken -- see the 2026-09-14 T5 entry above). Both blockers are now
+resolved. This session reused `backtest.scan_pre_kickoff_events` +
+`market_sources.fetch_event_status`/`classify_event_status` exactly as
+built (no rebuild, per the explicit instruction), confirmed 10 real Week 1
+events final, and ran T2's own original two-part acceptance against 3 real
+players: **Trevor Lawrence (QB)**, **Breece Hall (RB)**, **Garrett Wilson
+(WR)** -- chosen before running anything, for continuity with the exact
+players T2d/T2e/T5 already used as worked examples, filtered only to a
+real, fully-priced (`conditional_market`) anchor and a confirmed-played,
+confirmed-final result (18/27/51 real QB/RB/WR candidates this week
+satisfied that filter; these three were not picked after seeing results).
+
+**Independent closing-line reference: attempted, confirmed not obtainable,
+disclosed rather than substituted.** `market_sources.the_odds_api()` -- the
+only other provider in this repo with real (non-stub) fetch code -- was
+called live for a Week-1-played team. It queries The Odds API's
+`/v4/sports/.../events` endpoint, which is a current/upcoming-events
+listing; direct inspection of the raw response (2026-09-15) showed 17
+events, earliest kickoff 2026-09-15T00:15 UTC (a game still upcoming) --
+zero already-played Week 1 games present, and the target player call
+returned `no_posted_lines`. `source_configuration()` shows a BettingPros key
+IS configured, but no BettingPros fetch function exists anywhere in this
+codebase -- writing one would be new provider-integration work, not reuse,
+and explicitly out of scope here. FantasyPros has no key; Underdog is
+hard-disabled by design. Conclusion, stated plainly rather than glossed
+over: **no genuinely independent (different data source) closing-line
+reference is obtainable for a settled week with what this repo has today.**
+Per the user's explicit instruction, fell back to T2's own
+originally-specified hand-verification path instead of inventing or
+substituting a reference.
+
+**Check 1 -- approximately-one-FP consensus-close, restricted to yardage
+components.** The original T2 ticket text is specifically about de-vigging
+a YARDAGE line's price pair into a mean (a symmetric-price line's median
+approximately equals its mean); a count-market line like `td`/`rec` is a
+threshold ("2+ TDs"), not a mean, so comparing a raw median line against
+their Poisson-solved implied mean would not be an apples-to-apples check
+and was excluded from this specific comparison (their fit is checked
+separately below, by shape). For the yardage components only,
+`market_anchor.py`'s de-vig+SD computation was compared against
+`market_sources._book_summary()`'s robust-median-of-the-same-stored-lines
+computation -- two different computational methods over the same real
+book data, not two independent data sources (disclosed as such, not
+oversold):
+
+| player | pos | yardage components | anchor FP | consensus-close FP | diff |
+| --- | --- | --- | --- | --- | --- |
+| Trevor Lawrence | QB | pass_yd | 9.3248 | 9.34 | 0.0152 |
+| Breece Hall | RB | rush_yd + rec_yd | 8.574 | 8.5 | 0.074 |
+| Garrett Wilson | WR | rec_yd | 6.2307 | 6.35 | 0.1194 |
+
+All three well inside the ~1 FP bar (max 0.12 FP).
+
+**Check 2 -- final-box-score distribution shape, all priced components
+including td/rec.** z = (actual - market_mean) / sqrt(variance), using
+`convert_snapshot`'s own per-stat `stat_distributions` and Sleeper's real
+settled box score as "actual" (`rush_td`+`rec_td` summed for the `td`
+component, same fix as `backtest.py`'s `component_validation` -- Sleeper's
+box score has no matching aggregate key):
+
+| player | component | market mean | sd | actual | z |
+| --- | --- | --- | --- | --- | --- |
+| Trevor Lawrence | pass_yd | 233.12 | 75.50 | 245.0 | 0.157 |
+| Trevor Lawrence | td | 0.332 | 0.576 | 0 | -0.576 |
+| Breece Hall | rush_yd | 65.54 | 38.51 | 102.0 | 0.947 |
+| Breece Hall | rec_yd | 20.20 | 15.00 | 16.0 | -0.28 |
+| Breece Hall | td | 0.613 | 0.784 | 1 | 0.494 |
+| Breece Hall | rec | 2.834 | 1.684 | 2 | -0.496 |
+| Garrett Wilson | rec_yd | 62.31 | 32.02 | 79.0 | 0.521 |
+| Garrett Wilson | td | 0.364 | 0.605 | 0 | -0.602 |
+| Garrett Wilson | rec | 5.720 | 2.392 | 6 | 0.117 |
+
+Every component landed within |z|<=0.947 -- no outlier, nothing suggesting
+the converter's stated variance shape is miscalibrated.
+
+**T2b verdict: PASS on both original criteria.** Full detail, including
+per-stat book counts and forecast-cutoff timestamps, is in
+docs/T2_ACCEPTANCE.json's new `t2b_settled_check` key. **Scope boundary,
+stated explicitly so this isn't oversold**: this validates the converter's
+math against 3 real players in 1 real week -- it does not empirically fit
+`YARDAGE_SD_DEFAULTS`' provisional per-position constants against many
+players (that would need a larger multi-week exercise, not this ticket),
+and it is one week's evidence, not a multi-week track record. T2 (the
+whole T2a/T2b/T2c/T2d/T2e/T2f series) is now complete for the first time
+since 2026-09-12.
+
+No code was changed for T2b itself -- only verification scripts run
+against existing functions, per the explicit reuse-don't-rebuild
+instruction. `python ff.py --selftest`: **203 tests pass** (172 + 31),
+unchanged from the 2026-09-14 session.
+
+T6 (delta table) was not started, per the user's explicit instruction.
