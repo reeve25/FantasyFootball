@@ -51,12 +51,21 @@ must be separate. Two sites sharing one forecast are one forecasting origin;
 market-adjusted baselines are not independent second models. Do not invent
 calibrated confidence percentages or manager acceptance probabilities.
 
-For discovery read docs/TRADES.md. `ff.py discover` makes a bounded research
-shortlist using the same calculator; it is not an exhaustive search or a list
-to send. Every asset must help its recipient; no bench padding to disguise an
-unfair offer. A negative counterparty result needs a concrete, supported reason
-to remain under discussion. No manager psychology inferred from sparse history.
-Flock is a price constraint, not a forecast. Finalist offers need the complete,
+For discovery read docs/TRADES.md. `ff.py discover` (default `--mode ours`)
+makes a bounded research shortlist using the same calculator, ranked by
+Reeve's own modeled lineup gain; it is not an exhaustive search or a list to
+send. The trade objective is improving Reeve's own team under credible
+current evidence, subject to plausible acceptance by the other manager; the
+engine's modeled counterparty delta is shown per candidate for context, never
+an automatic veto, and a negative one does not by itself exclude or require
+extra justification for an offer. `--mode mutual` keeps the older screen
+(also requires a non-negative counterparty delta) as an explicit alternative,
+e.g. when a mutually-agreeable-looking shortlist is wanted on its own terms —
+use it deliberately, not as the default lens. No bench padding used to
+disguise an offer's true cost, though. No manager psychology inferred from
+sparse history beyond what they've actually stated. Flock is the
+acceptance/market-value reference, not ground truth on player performance or
+a forecast. Finalist offers need the complete,
 stable, current-year PPR Redraft **Fair Trade!** verdict and supported lineup
 improvement. An unverified offer is a research target, not a validated win.
 The engine deliberately leaves external validation pending for the assistant.
