@@ -177,6 +177,44 @@ no assistant intermediation.
 Championship probability, variance-seeking vs. floor-seeking by team state.
 Acceptance: deferred until T5 has 4+ weeks of scored data.
 
+## T9 — Discovery screen defects (`ff.py discover --mode`)  [independent of the T2-T8 forecasting loop]
+
+Three known defects found reviewing the `discover --mode ours|mutual` WIP
+(`advisor_runtime/trade_search.py`, committed 2a7fa52) before this ticket
+was opened -- logging only, nothing fixed yet:
+
+1. **Tie-break contradicts the "never demotes" wording.** In `mode="ours"`,
+   `rows.sort(key=lambda r: (-r[0], -r[1], -r[2], r[3]["give"], r[3]["get"]))`
+   tie-breaks on `-r[2]` (`theirs`, the counterparty delta) whenever two
+   candidates tie on `ours` (r[0]==r[1] always in this mode). That reorders
+   a tied candidate with a lower counterparty delta below one with a higher
+   counterparty delta -- but the packet's own `sort_note` says "a negative
+   counterparty delta is reported per candidate but never excludes or
+   demotes it," and BRIEF.md says the same ("never an automatic veto...
+   does not by itself exclude or require extra justification"). Either the
+   tie-break must stop using `theirs` (e.g. break ties on give/get names
+   only) or the wording must admit `theirs` is used as a tie-break.
+2. **The contribution ("useful") check accepts unknown evidence as a
+   pass.** `useful = True` starts optimistic and is only set `False` when
+   `without is not None and full - without <= 0`. When `_roster_average`
+   returns `None` (unknown -- e.g. a roster's other projections are
+   incomplete), the check silently leaves `useful` True instead of treating
+   the asset's contribution as unverified. This is the opposite of BRIEF.md's
+   "missing is unknown, never zero": here, missing is being treated as an
+   affirmative pass rather than excluded pending real evidence.
+3. **No regression tests exist for `trade_search.py`/`discover()` at all**
+   (verified: no test file in `advisor_runtime/tests` references either
+   name). Any future change to this module -- including a fix for #1 or #2
+   -- currently has zero automated coverage to check against.
+
+Acceptance: unit tests for `discover()` covering `mode="ours"` (tie-break
+behavior against real data, whether kept or changed -- confirm which before
+starting), `mode="mutual"` (existing screen unchanged), the useful/
+contribution check treating a `None` `_roster_average` result as unverified
+rather than a pass, and the `negative_label`/warnings shape for both modes.
+Confirm scope before starting: this ticket may be logging + tests only, or
+may also fix #1/#2 -- the user has not yet said which.
+
 # Session budget rule: if a ticket is not done in one session, STOP, log
 # exact state in STATUS.md (done / blockers / exact next prompt), and split
 # the remainder into T<n>a/T<n>b next session. Never leave uncommitted work.
