@@ -18,6 +18,14 @@ FETCHED_AT = "2026-09-11T12:00:00.000000+00:00"  # well before kickoff
 KICKOFF = "2026-09-14T17:00:00.000Z"
 
 
+def final_status_fetcher(event_ids):
+    """Stub confirming every requested event is final -- keeps tests that
+    aren't specifically about the finality gate itself offline and focused
+    on what they were already testing, matching this file's own no-network
+    rule."""
+    return {event_id: {"completed": True} for event_id in event_ids}
+
+
 def event_metadata(kickoff=KICKOFF):
     return {
         "sport_id": "FOOTBALL", "league_id": "NFL", "season_week": "Week 3",
@@ -126,7 +134,10 @@ class ScoreEventPlayerTests(unittest.TestCase):
             Path(self.tmp.name), "a.jsonl",
             [line_row("over", -110), line_row("under", -110), projection_row(8.0)],
         )
-        self.event_info = {"snapshot_path": self.path, "season_week": 3, "event_id": "evt1"}
+        self.event_info = {
+            "snapshot_path": self.path, "season_week": 3, "event_id": "evt1",
+            "snapshot_fetched_at": FETCHED_AT,
+        }
         self.player = {"pid": "999", "name": "Test TE", "pos": "TE"}
 
     def test_scores_anchored_and_consensus_counterfactual_against_the_same_outcome(self):
@@ -142,6 +153,46 @@ class ScoreEventPlayerTests(unittest.TestCase):
         self.assertAlmostEqual(record["anchored"]["error"]["sleeper_projection_feed"], 2.0)
         self.assertEqual(record["consensus_counterfactual"]["market_anchor_blend"], 8.0)
         self.assertAlmostEqual(record["consensus_counterfactual"]["error"]["market_anchor_blend"], 2.0)
+        # Component-level validation: the market's own implied rec_yd (74.5,
+        # not shown -- this fixture uses a 50.5 line) vs. the actual rec_yd
+        # (60.0), separate from the summed fantasy-point comparison above --
+        # this is what lets "the market misjudged yardage" be told apart
+        # from "our converter/blend logic is wrong given a correct anchor."
+        component = record["component_validation"]["rec_yd"]
+        self.assertAlmostEqual(component["market_implied"], 50.5)
+        self.assertEqual(component["actual"], 60.0)
+        self.assertAlmostEqual(component["error"], 9.5)
+        self.assertEqual(record["forecast_cutoff_utc"], FETCHED_AT)
+        # This fixture's minimal SCORING has no fum_lost/rec_2pt coefficient
+        # at all, so nothing is reported as unmodeled -- a zero/absent
+        # league weight isn't a modeling gap. See test_market_anchor_
+        # projection.py's UnmodeledScoringComponentsTests for the case where
+        # the league actually scores one of these.
+        self.assertEqual(record["unmodeled_scoring_components"], [])
+
+    def test_component_validation_sums_actual_rush_and_rec_td_for_the_td_component(self):
+        # The market's "td" is a rush+rec aggregate (resolve_touchdown_
+        # scoring); Sleeper's box score has no matching aggregate key, only
+        # the two split stats, so scoring must sum them rather than look up
+        # "td" directly, or this component would always read as missing.
+        td_line = dict(
+            row_type="line", source="SportsGameOdds", event_id="evt1",
+            player_id="TEST_TE_1_NFL", book="b", market="td", line=1.5,
+            side="over", price=750, fetched_at_utc=FETCHED_AT,
+            player_name="Test TE", event_metadata=event_metadata(),
+        )
+        path = write_snapshot(
+            Path(self.tmp.name), "b.jsonl",
+            [line_row("over", -110), line_row("under", -110), td_line],
+        )
+        event_info = {"snapshot_path": path, "season_week": 3, "event_id": "evt1"}
+        scoring = {"rec_yd": 0.1, "rush_td": 6.0, "rec_td": 6.0}
+        realized = {"999": {"played": True, "stats": {"rec_yd": 60.0, "rush_td": 1, "rec_td": 1}}}
+        record = backtest.score_event_player(
+            "evt1", event_info, self.player, scoring=scoring, realized=realized,
+        )
+        self.assertEqual(record["component_validation"]["td"]["actual"], 2)
+        self.assertIsNotNone(record["component_validation"]["td"]["error"])
 
     def test_none_when_player_did_not_play(self):
         realized = {"999": {"played": False, "stats": {}}}
@@ -205,9 +256,11 @@ class RunBacktestTests(unittest.TestCase):
                 history_dir=Path(history), engine_players=ENGINE_PLAYERS, scoring=SCORING,
                 season="2026", out_dir=Path(out),
                 realized_fetcher=lambda season, week: {"999": {"played": False, "stats": {}}},
+                event_status_fetcher=final_status_fetcher,
             )
             self.assertEqual(result["status"], "no_eligible_weeks")
             self.assertEqual(result["candidate_events"], 1)
+            self.assertEqual(result["events_by_finality"], {"final": 1, "not_final": 0, "unknown": 0})
 
     def test_scores_a_real_eligible_week_end_to_end_and_writes_files(self):
         with tempfile.TemporaryDirectory() as history, tempfile.TemporaryDirectory() as out:
@@ -219,10 +272,13 @@ class RunBacktestTests(unittest.TestCase):
                 history_dir=Path(history), engine_players=ENGINE_PLAYERS, scoring=SCORING,
                 season="2026", out_dir=Path(out),
                 realized_fetcher=lambda season, week: {"999": {"played": True, "stats": {"rec_yd": 60.0}}},
+                event_status_fetcher=final_status_fetcher,
             )
             self.assertEqual(result["status"], "scored")
             self.assertEqual(result["player_weeks_scored"], 1)
             self.assertEqual(result["records"][0]["pid"], "999")
+            self.assertEqual(result["events_by_finality"], {"final": 1, "not_final": 0, "unknown": 0})
+            self.assertIn("methodology", result)
 
             run_path = Path(out) / f"{result['run_id']}.json"
             self.assertTrue(run_path.exists())
@@ -247,6 +303,57 @@ class RunBacktestTests(unittest.TestCase):
                 season="2026", out_dir=Path(out), write=False,
             )
             self.assertEqual(list(Path(out).glob("*")), [])
+
+    def test_invalid_inputs_when_season_is_empty(self):
+        # The exact bug this session fixed: an empty season string must never
+        # silently masquerade as "week hasn't finished yet."
+        with tempfile.TemporaryDirectory() as history, tempfile.TemporaryDirectory() as out:
+            write_snapshot(Path(history), "a.jsonl", [line_row("over", -110), line_row("under", -110)])
+            result = backtest.run_backtest(
+                history_dir=Path(history), engine_players=ENGINE_PLAYERS, scoring=SCORING,
+                season="", out_dir=Path(out),
+            )
+            self.assertEqual(result["status"], "invalid_inputs")
+            self.assertEqual(result["player_weeks_scored"], 0)
+
+    def test_invalid_inputs_when_scoring_is_empty(self):
+        with tempfile.TemporaryDirectory() as history, tempfile.TemporaryDirectory() as out:
+            result = backtest.run_backtest(
+                history_dir=Path(history), engine_players=ENGINE_PLAYERS, scoring={},
+                season="2026", out_dir=Path(out),
+            )
+            self.assertEqual(result["status"], "invalid_inputs")
+
+    def test_gp_alone_does_not_prove_finality_event_still_in_progress(self):
+        with tempfile.TemporaryDirectory() as history, tempfile.TemporaryDirectory() as out:
+            write_snapshot(
+                Path(history), "a.jsonl",
+                [line_row("over", -110), line_row("under", -110), projection_row(8.0)],
+            )
+            result = backtest.run_backtest(
+                history_dir=Path(history), engine_players=ENGINE_PLAYERS, scoring=SCORING,
+                season="2026", out_dir=Path(out),
+                realized_fetcher=lambda season, week: {"999": {"played": True, "stats": {"rec_yd": 60.0}}},
+                event_status_fetcher=lambda event_ids: {eid: {"completed": False} for eid in event_ids},
+            )
+            self.assertEqual(result["status"], "no_eligible_weeks")
+            self.assertEqual(result["player_weeks_scored"], 0)
+            self.assertEqual(result["events_by_finality"], {"final": 0, "not_final": 1, "unknown": 0})
+
+    def test_unconfirmable_finality_is_unknown_not_scored(self):
+        with tempfile.TemporaryDirectory() as history, tempfile.TemporaryDirectory() as out:
+            write_snapshot(
+                Path(history), "a.jsonl",
+                [line_row("over", -110), line_row("under", -110), projection_row(8.0)],
+            )
+            result = backtest.run_backtest(
+                history_dir=Path(history), engine_players=ENGINE_PLAYERS, scoring=SCORING,
+                season="2026", out_dir=Path(out),
+                realized_fetcher=lambda season, week: {"999": {"played": True, "stats": {"rec_yd": 60.0}}},
+                event_status_fetcher=lambda event_ids: {},  # provider error/missing key
+            )
+            self.assertEqual(result["status"], "no_eligible_weeks")
+            self.assertEqual(result["events_by_finality"], {"final": 0, "not_final": 0, "unknown": 1})
 
 
 class FetchRealizedStatsTests(unittest.TestCase):

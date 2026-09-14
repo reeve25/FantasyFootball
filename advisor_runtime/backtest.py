@@ -29,11 +29,31 @@ new provider, no invented data. See STATUS.md's T5 Decision Log.
 
 No fabrication, anywhere in this module: a (player, week) is only ever
 scored when (a) at least one local snapshot was captured strictly before
-that event's own recorded kickoff time and (b) Sleeper's stats endpoint
-reports that player as having actually played that week (``stats.gp``). If
-nothing qualifies -- true today, since Week 1 has not finished -- ``run_
+that event's own recorded kickoff time, (b) a FRESH SportsGameOdds event
+status check (``market_sources.fetch_event_status``/``classify_event_status``,
+never the stale pre-kickoff snapshot's own ``event_metadata.status``) reports
+the game itself as completed/ended/finalized, and (c) Sleeper's stats
+endpoint separately reports that player as having actually played that week
+(``stats.gp``). (b) and (c) are both required -- Sleeper's live stats can
+report ``gp=1`` while a game is still in progress, so ``gp`` alone was never
+sufficient proof of finality; a game whose fresh status could not be
+confirmed at all (provider key missing, request failed, or the event has
+aged out of the provider's near-term window) is treated as "unknown", the
+same as "not yet final" -- never scored. If nothing qualifies, ``run_
 backtest`` returns ``{"status": "no_eligible_weeks", ...}`` and writes that
 fact to disk, never a synthetic or estimated result.
+
+Season/scoring inputs: this module fails loudly (``{"status":
+"invalid_inputs", ...}``) rather than silently scoring with an empty season
+string or an empty scoring dict, which previously produced a misleading
+``"no_eligible_weeks"`` result that looked identical to "week hasn't
+finished yet." The real fix is at the caller: ``ff.py``'s ``backtest``
+command now fetches real live league season/scoring via the same
+``sleeper_live.fetch_live_context`` every other command already uses,
+instead of ``advisor.load_snapshot()``'s persisted snapshot, whose ``league``
+dict never stores ``season``/``scoring_settings`` at all (those are only
+ever added transiently by ``advisor._sync_live`` merging a live fetch, never
+written back to disk -- see STATUS.md).
 """
 from __future__ import annotations
 
@@ -50,7 +70,12 @@ from advisor_runtime.market_anchor_projection import (
     apply_consensus_fallback,
     compute_projection_sources,
 )
-from advisor_runtime.market_sources import load_name_aliases, resolve_provider_name
+from advisor_runtime.market_sources import (
+    classify_event_status,
+    fetch_event_status,
+    load_name_aliases,
+    resolve_provider_name,
+)
 
 REALIZED_STATS_URL = "https://api.sleeper.app/stats/nfl"
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "backtest"
@@ -246,6 +271,7 @@ def score_event_player(
     anchored = compute_projection_sources(event_rows, players=[player], scoring=scoring)
     anchor_fp = anchored["sources"].get(pid, {}).get("market_anchor", {}).get(str(week))
     anchored_blend_fp = anchored["sources"].get(pid, {}).get("market_anchor_blend", {}).get(str(week))
+    week_attribution = anchored["attribution"].get(pid, {}).get(str(week), {})
 
     sleeper_fp = historical_sleeper_projection(event_info["snapshot_path"], pid, week)
     consensus_blend_fp = None
@@ -259,11 +285,50 @@ def score_event_player(
     def error(predicted: float | None) -> float | None:
         return None if predicted is None else abs(predicted - realized_fp)
 
+    # Component-level validation: compare the market's OWN implied stat mean
+    # (e.g. implied rec_yd) against the SAME real box-score stat, per
+    # component -- not just the summed fantasy-point total. This is what lets
+    # a reader tell "the market misjudged this player's yardage" (a market
+    # forecast error) apart from "our converter/weighting is wrong given a
+    # correct anchor" (an error introduced by this repo's own code), which
+    # comparing only realized_fp vs anchor_fp cannot distinguish.
+    realized_stats = realized_row.get("stats") or {}
+
+    def actual_for(stat: str) -> float | None:
+        # "td" is the market's own rush+rec aggregate (see
+        # resolve_touchdown_scoring -- never passing); Sleeper's box score has
+        # no matching aggregate key, only the two split stats, so it must be
+        # summed here rather than looked up directly, or this component's
+        # actual value would always come back missing despite being real,
+        # available data.
+        if stat == "td":
+            rush = realized_stats.get("rush_td")
+            rec = realized_stats.get("rec_td")
+            if not isinstance(rush, (int, float)) and not isinstance(rec, (int, float)):
+                return None
+            return (rush or 0) + (rec or 0)
+        value = realized_stats.get(stat)
+        return value if isinstance(value, (int, float)) else None
+
+    implied_stats = week_attribution.get("implied_stats") or {}
+    components = {
+        stat: {
+            "market_implied": round(implied_value, 4),
+            "actual": actual_for(stat),
+            "error": (
+                None if actual_for(stat) is None
+                else round(abs(implied_value - actual_for(stat)), 4)
+            ),
+        }
+        for stat, implied_value in implied_stats.items()
+    }
+
     return {
         "event_id": event_id,
         "pid": pid,
         "name": player.get("name"),
         "week": week,
+        "forecast_cutoff_utc": event_info.get("snapshot_fetched_at"),
         "realized_fp": round(realized_fp, 4),
         "anchored": {
             "market_anchor": anchor_fp,
@@ -279,7 +344,9 @@ def score_event_player(
             "market_anchor_blend": consensus_blend_fp,
             "error": {"market_anchor_blend": error(consensus_blend_fp)},
         },
-        "anchor_confidence": anchored["attribution"].get(pid, {}).get(str(week), {}).get("confidence"),
+        "anchor_confidence": week_attribution.get("confidence"),
+        "component_validation": components,
+        "unmodeled_scoring_components": anchored.get("unmodeled_scoring_components", {}).get(pid, []),
     }
 
 
@@ -323,6 +390,34 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _methodology(season: str | None, scoring: dict[str, float] | None) -> dict[str, Any]:
+    """Disclosed on every result, scored or not: N/cutoff/finality/scoring
+    are meaningless without this context (see the task that added this)."""
+    return {
+        "forecast_cutoff_rule": (
+            "The earliest locally-stored SGO snapshot whose own fetched_at_utc "
+            "is strictly before that event's own recorded kickoff time "
+            "(scan_pre_kickoff_events); see each record's forecast_cutoff_utc."
+        ),
+        "finality_rule": (
+            "A player-week is only scored when BOTH (a) a FRESH SportsGameOdds "
+            "event-status check -- never the stale pre-kickoff snapshot's own "
+            "status -- classifies the game completed/ended/finalized, and "
+            "(b) Sleeper's stats endpoint separately reports the player as "
+            "having played (gp). Neither signal alone is sufficient; an event "
+            "whose fresh status could not be confirmed is treated as unknown, "
+            "never scored."
+        ),
+        "scoring_settings_source": (
+            "Real live league scoring settings supplied by the caller "
+            "(ff.py's backtest command fetches these via "
+            "sleeper_live.fetch_live_context; never hardcoded here)."
+        ),
+        "season_used": season,
+        "scoring_keys_used": sorted(scoring) if scoring else [],
+    }
+
+
 def run_backtest(
     *,
     history_dir: Path | None = None,
@@ -330,6 +425,7 @@ def run_backtest(
     scoring: dict[str, float] | None = None,
     season: str | None = None,
     realized_fetcher: Callable[[str, int], dict[str, dict[str, Any]]] = fetch_realized_stats,
+    event_status_fetcher: Callable[[set[str]], dict[str, dict[str, Any]]] = fetch_event_status,
     out_dir: Path | None = None,
     write: bool = True,
 ) -> dict[str, Any]:
@@ -337,7 +433,12 @@ def run_backtest(
 
     Any of engine_players/scoring/season left None triggers a live load
     (advisor.load_snapshot()) -- kept lazy and optional so tests can supply
-    small fixtures instead of the real ~12,200-player snapshot.
+    small fixtures instead of the real ~12,200-player snapshot. That fallback
+    is a last resort for direct callers, not the real fix: advisor.
+    load_snapshot()'s persisted snapshot never stores season/scoring_settings
+    at all (see the module docstring), so ff.py's real backtest command
+    always supplies both explicitly via a live league fetch instead of
+    relying on this fallback.
     """
     history_dir = history_dir or market_sources.MARKET_HISTORY_DIR
     out_dir = out_dir or DEFAULT_OUT_DIR
@@ -354,6 +455,27 @@ def run_backtest(
 
     run_id = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8]
     checked_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    methodology = _methodology(season, scoring)
+
+    if not season or not scoring:
+        result = {
+            "status": "invalid_inputs",
+            "run_id": run_id,
+            "checked_at_utc": checked_at,
+            "reason": (
+                "Refusing to score: season "
+                f"({season!r}) or scoring settings ({'present' if scoring else 'empty'}) "
+                "are missing. Scoring with an empty season/scoring silently "
+                "produces meaningless zero-length results indistinguishable "
+                "from a genuine no_eligible_weeks -- see the module docstring."
+            ),
+            "candidate_events": 0,
+            "player_weeks_scored": 0,
+            "methodology": methodology,
+        }
+        if write:
+            _write_run(out_dir, run_id, result)
+        return result
 
     events = scan_pre_kickoff_events(history_dir)
     if not events:
@@ -364,6 +486,37 @@ def run_backtest(
             "reason": "No local snapshot was captured strictly before its event's recorded kickoff time.",
             "candidate_events": 0,
             "player_weeks_scored": 0,
+            "methodology": methodology,
+        }
+        if write:
+            _write_run(out_dir, run_id, result)
+        return result
+
+    event_status = event_status_fetcher({str(event_id) for event_id in events}) or {}
+    final_events: dict[str, dict[str, Any]] = {}
+    finality_counts = {"final": 0, "not_final": 0, "unknown": 0}
+    for event_id, event_info in events.items():
+        classification = classify_event_status(event_status.get(event_id))
+        finality_counts[classification] += 1
+        if classification == "final":
+            final_events[event_id] = event_info
+
+    if not final_events:
+        result = {
+            "status": "no_eligible_weeks",
+            "run_id": run_id,
+            "checked_at_utc": checked_at,
+            "reason": (
+                f"{len(events)} pre-kickoff event(s) found, but a fresh "
+                "game-status check confirms none have finished yet "
+                f"({finality_counts['not_final']} not yet final, "
+                f"{finality_counts['unknown']} unknown -- a player's own gp "
+                "flag alone is never treated as proof of finality)."
+            ),
+            "candidate_events": len(events),
+            "events_by_finality": finality_counts,
+            "player_weeks_scored": 0,
+            "methodology": methodology,
         }
         if write:
             _write_run(out_dir, run_id, result)
@@ -372,7 +525,7 @@ def run_backtest(
     realized_cache: dict[int, dict[str, dict[str, Any]]] = {}
     records: list[dict[str, Any]] = []
     weeks_checked: set[int] = set()
-    for event_id, event_info in events.items():
+    for event_id, event_info in final_events.items():
         week = event_info["season_week"]
         weeks_checked.add(week)
         if week not in realized_cache:
@@ -391,13 +544,15 @@ def run_backtest(
             "run_id": run_id,
             "checked_at_utc": checked_at,
             "reason": (
-                "Pre-kickoff snapshots exist, but Sleeper's stats endpoint "
-                "reports no scoreable player as having played yet for "
-                f"week(s) {sorted(weeks_checked)}."
+                f"{len(final_events)} event(s) confirmed final by a fresh "
+                "game-status check, but Sleeper's stats endpoint reports no "
+                f"scoreable player as having played for week(s) {sorted(weeks_checked)}."
             ),
             "candidate_events": len(events),
+            "events_by_finality": finality_counts,
             "weeks_checked": sorted(weeks_checked),
             "player_weeks_scored": 0,
+            "methodology": methodology,
         }
         if write:
             _write_run(out_dir, run_id, result)
@@ -410,7 +565,9 @@ def run_backtest(
         "season": season,
         "weeks_checked": sorted(weeks_checked),
         "candidate_events": len(events),
+        "events_by_finality": finality_counts,
         **summarize(records),
+        "methodology": methodology,
         "records": records,
     }
     if write:
