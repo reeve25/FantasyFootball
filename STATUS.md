@@ -1,6 +1,6 @@
 # Shared system status
 
-Updated 2026-09-15.
+Updated 2026-09-15 (T6).
 
 Production: C:\Users\reeve\Documents\FantasyFootball\ff.py
 One local Git repository; no remote or publication. Existing sources and engine
@@ -1517,4 +1517,168 @@ against existing functions, per the explicit reuse-don't-rebuild
 instruction. `python ff.py --selftest`: **203 tests pass** (172 + 31),
 unchanged from the 2026-09-14 session.
 
-T6 (delta table) was not started, per the user's explicit instruction.
+## 2026-09-15 -- T6 complete: delta table + anti-double-count guard, both
+## acceptance cases reproduced live against real stored snapshots
+
+Built `advisor_runtime/delta_table.py`: per-book line/price movement
+between two market-history snapshots, projection movement alongside, both
+persisted as a NEW `row_type: "delta"` file in the same append-only
+`advisor_runtime/data/market_history/sports_game_odds/` directory --
+additive only, per the ticket's explicit instruction. Wired a
+`build_priced_in_guard()` into T3's existing `priced_in_guard` interface
+(`assumptions.apply`'s own documented `(assumption, week) -> True/False/
+None` contract, unchanged since T3 -- no changes to `assumptions.py` were
+needed or made).
+
+### A small refactor first: `parse_season_week` deduplicated
+
+Before writing the new module, noticed it would need the exact same
+`"Week 3" -> 3` parser `backtest.py` and `market_anchor_projection.py` each
+already carry as their own private copy -- T2f's own STATUS.md entry had
+already flagged this as "worth factoring into a shared helper" the third
+time it showed up, and this was that third time. Moved it to
+`market_sources.parse_season_week` (public); both existing modules now
+import it under their old private name (`as _parse_season_week`) so their
+own call sites needed zero other changes. `python ff.py --selftest`
+confirmed 172+31 passing, unchanged, immediately after this refactor and
+before any T6 code was added.
+
+### Design decisions
+
+- **Delta rows live in a brand-new file, never appended into an existing
+  one.** The market-history convention has always been "one file per fetch,
+  exclusive-create, never reopened" (docs/MARKET_HISTORY.md); reopening an
+  old snapshot file to inject delta rows into it would break that
+  invariant and risk two processes writing the same file. `write_delta_
+  snapshot(baseline_path, current_path)` instead reads both inputs
+  (never opens them for writing) and writes a THIRD, brand-new file using
+  the identical exclusive-create/unique-timestamp-plus-uuid convention
+  `market_sources._write_sports_game_odds_snapshot` already uses. Every
+  existing reader (`market_anchor.convert_snapshot`, `backtest.py`,
+  `market_anchor_projection.build_identity_inputs`) already filters
+  strictly on `row_type in {"line", "projection"}`, so a file full of
+  `row_type: "delta"` rows is inert to all of them by construction --
+  verified live, not just by inspection: a real run wrote a real delta file
+  (7580 line deltas + 2 projection deltas, computed across every player in
+  two real stored snapshots, not just the one player used for the
+  acceptance case below) directly into the real store, and a subsequent
+  real `python ff.py backtest` run still returned the identical
+  `player_weeks_scored: 190` it did before that file existed.
+- **A delta row is only ever emitted for a (event, player, book, market,
+  side) key present in BOTH snapshots.** A side posted in only one of the
+  two isn't a movement, it's a change in market coverage -- a different
+  fact this module doesn't try to represent, so it's left out entirely
+  rather than treated as a zero move (the same "missing is unknown, never
+  zero" rule this whole pipeline already follows everywhere else).
+- **`season_week` is carried on each line-delta row from T2c's own
+  `event_metadata`, only when both the baseline and current row agree on
+  it** -- never inferred from fetch time, and left `None` (not guessed) on
+  the rare mismatch. This is what lets the priced-in guard check an
+  assumption's `week_range` against real market evidence instead of
+  assuming "the current week."
+- **The priced-in guard checks "ANY one book," not a cross-book median or
+  consensus.** This was a real design fork, not an oversight: the
+  session's own real acceptance case (below) is exactly a single book
+  (betmgm) posting a large, real correction while four other books hadn't
+  moved from their already-accurate line -- a median across all five books
+  would show a move of 0 and this real case would never have been caught.
+  Requiring consensus is more conservative against a single mispriced book
+  causing a false "priced in," but the FAILURE MODE of getting this guard
+  wrong is asymmetric: missing a real priced-in signal (false negative)
+  risks double-counting a curated assumption on top of a market that
+  already moved, which silently and systematically inflates a projection
+  every time it recurs; being too eager to suppress (false positive) costs
+  one missed adjustment, once, for one assumption. "Any book" errs toward
+  the cheaper mistake. This is disclosed as a real, un-fitted heuristic,
+  not a validated threshold -- a future ticket could tighten it to require
+  2+ agreeing books once real data shows single-book false positives are
+  actually common; not attempted here.
+- **Direction must match.** An assumption predicting a stat INCREASE is
+  never flagged priced-in by a market move in the opposite direction --
+  that's new, contradicting information, not the same news already
+  reflected in the line. Verified by a dedicated test
+  (`test_opposite_direction_move_is_not_treated_as_priced_in`).
+- **`fantasy_points`/`p_active` (T3's other two `stat_affected` kinds)
+  always return `None` (unknown) from this guard.** Neither has a single
+  corresponding market line to check movement against (an aggregate FP
+  total isn't one book's posted threshold; availability isn't a stat prop
+  at all) -- returning `None` here matches the exact fail-closed default
+  `assumptions.apply` already documents for "no hook," rather than
+  guessing from an unrelated line's movement.
+
+### Acceptance: both cases reproduced live, against two REAL stored
+### snapshots -- no synthetic fixture was needed
+
+Real movement existed locally already: of 20 stored pre-kickoff snapshots
+(2026-09-11 through 2026-09-13), 1,368 (event, player, book, market, side)
+keys showed genuine line movement (not just price/juice) across repeated
+fetches. The two cases below both use **Jalen Tolbert** (Sleeper pid 8117,
+WR, `injury_status: "Out"`, `injury_body_part: "Coach's Decision"` --
+already real, current data in the engine's own snapshot), comparing the
+SAME two real snapshot files
+(`2026-09-13T011405.991244Z-ce31c150cd4f48ba95623795ff87ce21.jsonl` as
+baseline, `2026-09-13T020246.453627Z-f806fb3ecfc74418b5493ba0b533a17b.jsonl`
+as current), so both cases are the identical real delta computation, just
+read for two different stats:
+
+**(a) A real price drop flags a curated test assumption as priced-in.**
+betmgm's `rec_yd` line for Tolbert genuinely moved 24.5 -> 10.5 (line_move
+-14.0, price_move -345.0) between these two real fetches, while fanduel/
+caesars/espnbet/bovada held steady at 11.5-12.5 the whole time (betmgm's
+24.5 reads as a stale/mispriced outlier correcting toward what the rest of
+the market already reflected -- a real, disclosed nuance, not a claim that
+"the market" broadly repriced this player). A curated test assumption
+(`stat_affected: "rec_yd", delta: -14.0`, matching direction and magnitude)
+run through the real `assumptions.apply()` with the real guard came back
+`"status": "already_priced"`, `applied_fp_delta: 0.0` -- correctly
+suppressed.
+
+**(b) A stable line does not flag a related assumption.** The SAME
+player's `rec` (reception-count) line held at exactly 1.5 across every
+single book in both snapshots (only trivial price/juice wiggle, e.g.
+draftkings +5); `line_move` is 0.0 for all five books. A curated related
+test assumption (`stat_affected: "rec", delta: -1.0`) run through the same
+real guard came back `"status": "applied"`, `applied_fp_delta: -0.5` --
+correctly NOT suppressed, since nothing in the market moved to price it in.
+
+Both ran against the real engine player snapshot (12,227 players) for
+identity resolution, the real de-vig-free raw stored lines, and the real
+`assumptions.apply()` -- nothing about either case is a mock or a stub.
+
+`python ff.py --selftest`: **220 tests pass** (189 + 31; up from 203 before
+this session -- 17 new tests in `test_delta_table.py`, covering both
+acceptance cases plus the edge cases named above: unresolvable identity,
+wrong week, below-threshold move, non-market stat_affected values, and the
+write path never touching its two input files).
+
+### Remaining limitations, disclosed rather than glossed over
+
+- **The "any book" heuristic is unfitted and could be too permissive.**
+  A single mispriced or thinly-traded book could, in principle, trigger a
+  false priced-in flag. Not observed as a problem in this session's real
+  data, but not validated against enough real cases to rule out either;
+  logged as a candidate refinement, not attempted here.
+- **The 3.0-raw-unit default line-move threshold is a plain, disclosed
+  choice, not fitted or validated** against real assumption/outcome pairs
+  -- there's no assumption registry populated with real curated entries
+  yet to fit against (T3's registry remains empty of real, non-test
+  entries; see T2d/T2e/T2f's own repeated note on this).
+- **This module computes deltas between two snapshots a caller names; it
+  does not decide WHEN to compare** (e.g., wiring this into every live
+  fetch automatically, or scheduling a periodic comparison). That's
+  explicitly left as a future wiring/automation decision, not folded into
+  this ticket, per the user's "do not start T7/T8" instruction and this
+  ticket's own framing as "the delta table," not "the delta table plus its
+  automation."
+- **No new `ff.py` subcommand was added.** The user asked for the
+  computation and the T3 wiring, not a new CLI surface; adding one wasn't
+  requested and would have been unrequested scope.
+- A real delta file (7580 line deltas + 2 projection deltas, from the same
+  two real snapshots used above, covering every player in them) was
+  written into the real `market_history/sports_game_odds/` store as part
+  of proving the write path end-to-end -- this is real, disclosed, kept
+  data (not scratch), consistent with the append-only store's own "never
+  pruned" convention.
+
+T7 (conversational routing) and T8 (risk-aware decision layer) were not
+started, per the user's explicit instruction.

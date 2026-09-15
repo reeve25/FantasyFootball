@@ -160,16 +160,50 @@ curated yet to break down). See STATUS.md's 2026-09-13 T5 entry and
 `docs/backtest/` for the run artifacts. Next: rerun once week 1 settles,
 alongside T2b using the same real data.
 
-## T6 — Delta table  [leverage, already designed]
-Per-book line + price movement vs. baseline snapshot, projection movement
-alongside. Feed the anti-double-count guard from T3: flag assumptions whose
-news is already priced into line movement. Builds on
-`advisor_runtime/data/market_history/sports_game_odds/` (append-only,
-row_type "line"/"projection" -- see docs/MARKET_HISTORY.md); this is
-explicitly the "next task" that prior market-history writer sessions
-deferred, not something to fold into T2/T3.
-Acceptance: flags reproduce 2 known examples (e.g., a post-injury line
-crash).
+## T6 — Delta table  [leverage, already designed; complete 2026-09-15]
+
+Implemented as `advisor_runtime/delta_table.py`. `compute_line_deltas`/
+`compute_projection_deltas`/`compute_deltas` take two already-read snapshots
+(baseline, current) and return per-(event, provider player, book, market,
+side) line/price movement plus per-(pid, week) projection-point movement,
+both as a new `row_type: "delta"`; only a key present in BOTH snapshots
+produces a row (missing is unknown, never a zero-filled move).
+`write_delta_snapshot(baseline_path, current_path)` persists these as a
+brand-new file in the same append-only `market_history/sports_game_odds/`
+directory, using the identical exclusive-create convention
+`market_sources._write_sports_game_odds_snapshot` already uses -- the two
+input files are only ever read, never reopened for writing, and every
+existing reader (`market_anchor.convert_snapshot`, `backtest.py`,
+`market_anchor_projection.py`) already filters strictly on
+`row_type == "line"/"projection"`, so a "delta" file is inert to all of them
+by construction; verified live against the real store (a real cross-player
+run wrote 7580 line deltas + 2 projection deltas from two real stored
+snapshots, and a subsequent real `ff.py backtest` run still scored the
+identical 190 player-weeks it did before that file existed).
+
+`build_priced_in_guard(deltas, engine_players)` returns a callable matching
+T3's own `priced_in_guard(assumption, week)` contract exactly (True/False/
+None). Design, stated in the module's own docstring: matches by Sleeper pid
+-> name -> SGO provider id (the same join every T2-series module already
+uses); only `stat_affected` values that are themselves a postable market
+line can be checked at all (`fantasy_points`/`p_active` always return
+`None`, unknown); "ANY one book" showing a same-direction move at or above a
+disclosed, unfitted threshold (3.0 raw stat units by default) is enough to
+flag priced-in, a deliberate choice over requiring cross-book consensus
+(explained in STATUS.md's T6 entry -- it is the safer failure mode for an
+anti-double-count guard, and the real acceptance case below is exactly a
+single book's real correction while four others hadn't moved). Direction
+must match the assumption's own delta sign.
+
+Acceptance: both cases reproduced live against two REAL stored snapshots
+(no synthetic fixture) -- a real betmgm `rec_yd` line drop for a real
+player (24.5 -> 10.5, reflecting real `injury_status: "Out"` data already
+in the engine's own snapshot) flags a curated `-14.0 rec_yd` test assumption
+`already_priced`; the same player's `rec` (reception-count) line, which
+held at 1.5 across every book in both snapshots, leaves a curated related
+`-1.0 rec` test assumption `applied` (not flagged). See STATUS.md's
+2026-09-15 T6 entry and `advisor_runtime/tests/test_delta_table.py` (17 new
+tests) for full detail.
 
 ## T7 — Conversational routing
 Parse "Kenneth Walker for Drake London?" -> identify operation, trigger

@@ -13,11 +13,11 @@ a freshly fetched market-history file).
 """
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from advisor_runtime import assumptions as assumptions_module
 from advisor_runtime.market_anchor import convert_snapshot, default_yardage_sd
+from advisor_runtime.market_sources import parse_season_week as _parse_season_week
 
 TOUCHDOWN_STAT = "td"
 RECEPTION_STAT = "rec"
@@ -166,14 +166,6 @@ def optional_stats_for(
         if stats:
             result[str(player["pid"])] = stats
     return result
-
-
-def _parse_season_week(value: Any) -> int | None:
-    """"Week 3" -> 3. Only the provider's own text; never inferred from fetch time."""
-    if not value:
-        return None
-    match = re.search(r"\d+", str(value))
-    return int(match.group()) if match else None
 
 
 def build_identity_inputs(

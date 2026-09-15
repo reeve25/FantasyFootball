@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import re
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -74,19 +73,13 @@ from advisor_runtime.market_sources import (
     classify_event_status,
     fetch_event_status,
     load_name_aliases,
+    parse_season_week as _parse_season_week,
     resolve_provider_name,
 )
 
 REALIZED_STATS_URL = "https://api.sleeper.app/stats/nfl"
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "backtest"
 SOURCES = ("market_anchor", "market_anchor_blend", "sleeper_projection_feed")
-
-
-def _parse_season_week(value: Any) -> int | None:
-    if not value:
-        return None
-    match = re.search(r"\d+", str(value))
-    return int(match.group()) if match else None
 
 
 def _parse_iso(value: Any) -> dt.datetime | None:

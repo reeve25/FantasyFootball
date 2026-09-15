@@ -8,15 +8,15 @@
       "note": "Negative means the market anchor beat a consensus-only blend on these same real outcomes; positive means consensus-only would have done better. This is the first real evidence of whether the anchor does anything, not a claim it always will."
     },
     "candidate_events": 14,
-    "checked_at_utc": "2026-09-14T16:52:00+00:00",
+    "checked_at_utc": "2026-09-15T00:00:03+00:00",
     "mae_by_source": {
       "market_anchor": 5.885,
       "market_anchor_blend": 5.885,
       "sleeper_projection_feed": 4.578
     },
     "player_weeks_scored": 190,
-    "run_file": "20260914T165200Z-f0d5caea.json",
-    "run_id": "20260914T165200Z-f0d5caea",
+    "run_file": "20260915T000003Z-57f93d53.json",
+    "run_id": "20260915T000003Z-57f93d53",
     "status": "scored"
   },
   "runs": [
@@ -82,6 +82,26 @@
       "player_weeks_scored": 190,
       "run_file": "20260914T165200Z-f0d5caea.json",
       "run_id": "20260914T165200Z-f0d5caea",
+      "status": "scored"
+    },
+    {
+      "anchored_vs_consensus_counterfactual": {
+        "anchored_blend_mae": 5.885,
+        "anchored_minus_consensus_mae": 0.1069,
+        "consensus_only_blend_mae": 5.7781,
+        "n": 114,
+        "note": "Negative means the market anchor beat a consensus-only blend on these same real outcomes; positive means consensus-only would have done better. This is the first real evidence of whether the anchor does anything, not a claim it always will."
+      },
+      "candidate_events": 14,
+      "checked_at_utc": "2026-09-15T00:00:03+00:00",
+      "mae_by_source": {
+        "market_anchor": 5.885,
+        "market_anchor_blend": 5.885,
+        "sleeper_projection_feed": 4.578
+      },
+      "player_weeks_scored": 190,
+      "run_file": "20260915T000003Z-57f93d53.json",
+      "run_id": "20260915T000003Z-57f93d53",
       "status": "scored"
     }
   ]

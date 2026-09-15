@@ -10,6 +10,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import statistics
 import time
 import unicodedata
@@ -78,6 +79,18 @@ def normalize_name(value: str) -> str:
     text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     text = text.translate(_NAME_JOIN_STRIP)
     return " ".join("".join(ch if ch.isalnum() else " " for ch in text.lower()).split())
+
+
+def parse_season_week(value: Any) -> int | None:
+    """"Week 3" -> 3. The provider's own text only, never inferred from fetch
+    time. Shared here (T6) after the same private copy showed up a third
+    time (backtest.py, market_anchor_projection.py, delta_table.py) -- see
+    STATUS.md's T2f entry, which flagged a third occurrence as the point a
+    small duplication is worth factoring out."""
+    if not value:
+        return None
+    match = re.search(r"\d+", str(value))
+    return int(match.group()) if match else None
 
 
 NAME_ALIASES_PATH = Path(__file__).resolve().parent / "name_aliases.json"
