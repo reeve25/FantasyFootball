@@ -19,29 +19,31 @@ not a session log. Use `git log` and focused component docs for history.
   `2026-09-15T00:00:01Z`.
 - The latest scored backtest contains 190 player-weeks. Its tracked summary is
   `docs/backtest/summary.json`.
-- T2 through T6 are complete. T2b passed against real settled Week 1 players;
-  T6 added line/projection deltas and the anti-double-count guard.
-- T9 is complete: `discover()` mode=ours no longer tie-breaks on
-  counterparty delta (matches the documented never-excludes-or-demotes
-  wording); an unknown `_roster_average` result is now treated as
-  unverified contribution, not a usefulness pass; `advisor_runtime/tests/
-  test_trade_search.py` adds the first regression coverage for the module.
-- The workflow acceptance change is covered by the focused public-entrypoint
-  integration test. The full offline suite passes: 192 runtime tests plus 32
-  outer integration tests.
+- T2 through T7 and T9 are complete. T2b passed against real settled Week 1
+  players; T6 added line/projection deltas and the anti-double-count guard;
+  T7 added conversational trade routing ("X for Y" phrasing), decision
+  sensitivity (`min_ppg_shift_to_flip`), honest empty assumption list, and
+  structured decision report; T9 fixed discovery tie-break and contribution
+  defects.
+- The full offline suite passes: 194 runtime tests plus 34 outer integration
+  tests (228 total). Real acceptance check `python ff.py packet "Kenneth Walker
+  for Drake London?" --offline` PASS.
 
 ## Open development work
 
-- T7 conversational routing and T8 risk-aware decisions are not started. T8
-  remains intentionally deferred until several weeks of scored data exist.
+- Richer conversational trade intents (buy-low, sell-high, surplus trade-away)
+  design proposal drafted at `docs/CONVERSATIONAL_INTENTS_DESIGN.md` (design-only;
+  no code implemented pending user approval).
+- T8 risk-aware decisions remains intentionally deferred until several weeks of
+  scored data exist.
 - No real curated assumption entries exist yet; current assumption tests use
   fixtures. The T6 any-book rule and 3.0-unit movement threshold remain
   explicitly provisional.
 
 ## Active objective
 
-No ticket is active. T9 is complete. Do not start T7 or T8 without a new
-explicit objective.
+No ticket is active. T7 is complete. Do not start T8 or new intents without a
+new explicit objective.
 
 ## Validation and handoff
 

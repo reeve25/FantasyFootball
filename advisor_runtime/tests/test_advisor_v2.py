@@ -397,10 +397,34 @@ class MatchingAndIntentTests(unittest.TestCase):
             "Who should I claim off waivers?": "waiver",
             "Show my exact current lineup": "lineup",
             "Should I trade Travis Etienne for Tee Higgins?": "explicit_trade",
+            "Drake London for Tee Higgins": "explicit_trade",
+            "Tee Higgins for Drake London": "explicit_trade",
         }
         for question, expected in cases.items():
             with self.subTest(question=question):
-                self.assertEqual(advisor.classify_intent(question), expected)
+                self.assertEqual(advisor.classify_intent(question, self.snapshot), expected)
+
+    def test_resolve_trade_from_conversational_phrasing(self):
+        # London on roster 9, Higgins on roster 4
+        trade1 = advisor.resolve_trade_from_question(self.snapshot, "Drake London for Tee Higgins")
+        self.assertIsNotNone(trade1)
+        self.assertEqual(trade1["give"], ["Drake London"])
+        self.assertEqual(trade1["get"], ["Tee Higgins"])
+
+        # Counterparty first phrasing resolves give from perspective ownership
+        trade2 = advisor.resolve_trade_from_question(self.snapshot, "Tee Higgins for Drake London")
+        self.assertIsNotNone(trade2)
+        self.assertEqual(trade2["give"], ["Drake London"])
+        self.assertEqual(trade2["get"], ["Tee Higgins"])
+
+        # Explicit direction prefix
+        trade3 = advisor.resolve_trade_from_question(self.snapshot, "give Drake London for Tee Higgins")
+        self.assertIsNotNone(trade3)
+        self.assertEqual(trade3["give"], ["Drake London"])
+        self.assertEqual(trade3["get"], ["Tee Higgins"])
+
+        # Non-trade question returns None
+        self.assertIsNone(advisor.resolve_trade_from_question(self.snapshot, "Who should I start for week 2?"))
 
 
 class LineupTests(unittest.TestCase):
@@ -792,6 +816,49 @@ class TradeSafetyTests(unittest.TestCase):
         warning = " ".join(packet["warnings"])
         self.assertIn("Trade lineup math is incomplete", warning)
         self.assertIn("Treat any populated partial or playoff delta", warning)
+
+    def test_explicit_trade_packet_includes_sensitivity_and_decision_report(self):
+        snapshot = self._three_week_trade_snapshot()
+        trade = advisor.resolve_trade_from_question(snapshot, "Give Runner for Get Receiver")
+        self.assertIsNotNone(trade)
+        self.assertEqual(trade["give"], ["Give Runner"])
+        self.assertEqual(trade["get"], ["Get Receiver"])
+
+        packet = advisor.build_packet(
+            "Give Runner for Get Receiver",
+            snapshot,
+            explicit_trade=trade,
+            live_context=None,
+            include_market=False,
+        )
+        self.assertEqual(packet["decision_type"], "explicit_trade")
+        self.assertEqual(packet["assumption_list"], [])
+        self.assertEqual(packet["assumptions"], [])
+        math = packet["exact_engine_decision_math"]
+        self.assertIsNotNone(math)
+        self.assertIn("min_ppg_shift_to_flip", math)
+        self.assertIsNotNone(math["perspective_delta_pg"])
+        self.assertEqual(math["min_ppg_shift_to_flip"], round(abs(math["perspective_delta_pg"]), 4))
+        self.assertEqual(packet["min_ppg_shift_to_flip"], math["min_ppg_shift_to_flip"])
+        self.assertIn("decision_report", packet)
+        report = packet["decision_report"]
+        self.assertEqual(report["weekly_ppg_impact"], math["perspective_delta_pg"])
+        self.assertEqual(report["playoff_ppg_impact"], math["perspective_playoff_delta_pg"])
+        self.assertEqual(report["min_ppg_shift_to_flip"], math["min_ppg_shift_to_flip"])
+        self.assertIn("flips this decision", report["threshold_summary"])
+
+        # When projections are incomplete, min_ppg_shift_to_flip is None
+        incomplete_trade = advisor.resolve_trade_from_question(self.snapshot, "Drake London for Tee Higgins")
+        inc_packet = advisor.build_packet(
+            "Drake London for Tee Higgins",
+            self.snapshot,
+            explicit_trade=incomplete_trade,
+            live_context=self.live,
+            include_market=False,
+        )
+        self.assertIsNone(inc_packet["exact_engine_decision_math"]["min_ppg_shift_to_flip"])
+        self.assertIsNone(inc_packet["min_ppg_shift_to_flip"])
+        self.assertIn("Unknown sensitivity", inc_packet["decision_report"]["threshold_summary"])
 
 
 class PacketAndProjectionTests(unittest.TestCase):
