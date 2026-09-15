@@ -119,6 +119,33 @@ class EntrypointIntegrationTests(unittest.TestCase):
                 {"Drake London", "Bench Guy"},
             )
 
+    def test_market_status_is_honest_when_no_player_is_named(self):
+        from advisor_runtime import advisor as a
+        from advisor_runtime import market_sources
+        snapshot = {"players": {}, "rosters": [], "league": {}}
+        for command, question in (
+            ("lineup", "Show my exact submitted lineup projected total"),
+            ("rankings", "Rank every team in league"),
+        ):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "evidence.json"
+                with (
+                    mock.patch.dict(os.environ, {"FF_CHECKPOINT": str(checkpoint)}),
+                    mock.patch.object(a, "load_snapshot", return_value=snapshot),
+                    mock.patch.object(a, "_sync_live", return_value=snapshot),
+                    mock.patch.object(a, "build_packet", return_value={"status": "ok"}),
+                    mock.patch.object(a, "match_players", return_value=[]),
+                    mock.patch.object(a, "focused_expert_packet"),
+                    mock.patch.dict(a.CONFIG),
+                    mock.patch.object(market_sources, "focused_market_packet") as fetch,
+                ):
+                    ff.worker(ff.parser().parse_args([command, "--offline", "--market"]))
+                fetch.assert_not_called()
+                status = json.loads(checkpoint.read_text())["market_status"]
+                self.assertNotEqual(status, "not_requested; use --market when it can change this decision")
+                self.assertIn("requested but skipped", status)
+                self.assertIn(command, status)
+
     def test_lost_book_coverage_warning_is_surfaced_in_the_saved_packet(self):
         from advisor_runtime import advisor as a
         from advisor_runtime import market_sources

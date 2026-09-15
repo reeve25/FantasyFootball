@@ -372,7 +372,13 @@ def worker(args):
             packet["market_evidence"] = market
             packet.setdefault("warnings", [])[:0] = market.get("coverage_warnings") or []
             packet["market_status"] = "checked; inspect source coverage and timestamps"
-            save(packet)
+        else:
+            packet["market_status"] = (
+                f"requested but skipped: no player named in the {args.command!r} "
+                "question for --market/--deep to focus on; use packet or trade "
+                "with named players for market evidence"
+            )
+        save(packet)
 
 
 def main(argv=None):
