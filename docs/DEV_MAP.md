@@ -13,7 +13,7 @@ whole files only when the task truly spans them.
 | Projection-source injection and fallback | `advisor_runtime/market_anchor_projection.py`: `compute_projection_sources`, `apply_consensus_fallback`, `inject_projection_sources` | `test_market_anchor_projection.py`, `test_projection_source.py` |
 | Assumption blending and priced-in guard | `advisor_runtime/assumptions.py`: `apply`; `delta_table.py`: `compute_deltas`, `build_priced_in_guard` | `test_assumptions.py`, `test_delta_table.py` |
 | Backtest behavior and scored acceptance | `advisor_runtime/backtest.py`: `run_backtest`, `score_event_player`, `summarize`; `ff.py:worker` | `advisor_runtime/tests/test_backtest.py`, `tests/test_entrypoint.py` |
-| Trade discovery | `advisor_runtime/trade_search.py`: `discover` | Add/use focused discovery tests; T9 records the current gap |
+| Trade discovery | `advisor_runtime/trade_search.py`: `discover` | `advisor_runtime/tests/test_trade_search.py` |
 | Legacy projection adapter only | `advisor_runtime/advisor.py:load_engine` identifies the narrow calls into `advisor_runtime/engine/ff_v6_3.py` | `tests/test_oracle_performance.py` plus the caller's focused tests |
 
 ## Do not open routinely

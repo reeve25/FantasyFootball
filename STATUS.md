@@ -1,6 +1,6 @@
 # Current development state
 
-Updated 2026-09-14 (America/Los_Angeles). This file is a current-state handoff,
+Updated 2026-09-15 (America/Los_Angeles). This file is a current-state handoff,
 not a session log. Use `git log` and focused component docs for history.
 
 ## Repository
@@ -21,14 +21,17 @@ not a session log. Use `git log` and focused component docs for history.
   `docs/backtest/summary.json`.
 - T2 through T6 are complete. T2b passed against real settled Week 1 players;
   T6 added line/projection deltas and the anti-double-count guard.
+- T9 is complete: `discover()` mode=ours no longer tie-breaks on
+  counterparty delta (matches the documented never-excludes-or-demotes
+  wording); an unknown `_roster_average` result is now treated as
+  unverified contribution, not a usefulness pass; `advisor_runtime/tests/
+  test_trade_search.py` adds the first regression coverage for the module.
 - The workflow acceptance change is covered by the focused public-entrypoint
-  integration test. The full offline suite passes: 189 runtime tests plus 32
+  integration test. The full offline suite passes: 192 runtime tests plus 32
   outer integration tests.
 
 ## Open development work
 
-- T9 is the clearest next code objective: fix and test discovery sorting and
-  unknown-contribution behavior in `advisor_runtime/trade_search.py`.
 - T7 conversational routing and T8 risk-aware decisions are not started. T8
   remains intentionally deferred until several weeks of scored data exist.
 - No real curated assumption entries exist yet; current assumption tests use
@@ -37,9 +40,8 @@ not a session log. Use `git log` and focused component docs for history.
 
 ## Active objective
 
-No ticket is active. The workflow update is complete: compact current state,
-agent code map, non-vacuous scored-backtest acceptance, and shared Git
-discipline. Do not start T7, T8, or T9 without a new explicit objective.
+No ticket is active. T9 is complete. Do not start T7 or T8 without a new
+explicit objective.
 
 ## Validation and handoff
 
