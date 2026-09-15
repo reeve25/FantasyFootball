@@ -113,7 +113,8 @@ Verify any performance patch by diffing against the unpatched path.
   never called. Worse, `market_status` is left reading "not_requested; use
   --market when it can change this decision" even though the user did request
   it. Only `packet "<question naming players>"` and `trade` (which uses
-  give/get ids) actually reach the sportsbooks. Observed 2026-09-11.
+  give/get ids) actually reach the sportsbooks. Observed 2026-09-11. Fixed 2026-09-15: market_status now reports requested-but-skipped honestly when no player is named; see ff.py worker().
+
 - latest.json records the executing environment's own path spelling: VM runs
   store /sessions/.../mnt/FantasyFootball/outputs/..., PowerShell runs store
   C:\Users\reeve\... Anything resolving paths from latest.json breaks across
