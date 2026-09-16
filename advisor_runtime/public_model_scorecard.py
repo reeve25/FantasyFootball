@@ -560,6 +560,7 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
             "season_wins": season_wins,
             "kept": kept,
             "coverage": _coverage(frame, candidates),
+            "ros_mae_at_checkpoint": candidate_score["ros_mae_at_checkpoint"],
         }
         if kept:
             structural_features.extend(candidates)

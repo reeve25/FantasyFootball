@@ -205,6 +205,11 @@
             "ftn_drop_rate_roll3"
           ],
           "kept": true,
+          "ros_mae_at_checkpoint": {
+            "3": 2.874,
+            "6": 2.8379,
+            "9": 2.8502
+          },
           "season_wins": 4,
           "weekly_mae": 4.7392
         },
@@ -223,6 +228,11 @@
             "ngs_pass_cpoe_roll3"
           ],
           "kept": true,
+          "ros_mae_at_checkpoint": {
+            "3": 2.8705,
+            "6": 2.8332,
+            "9": 2.8497
+          },
           "season_wins": 5,
           "weekly_mae": 4.7407
         },
@@ -235,6 +245,11 @@
             "pass_play_participation_roll3"
           ],
           "kept": true,
+          "ros_mae_at_checkpoint": {
+            "3": 2.871,
+            "6": 2.8295,
+            "9": 2.8543
+          },
           "season_wins": 4,
           "weekly_mae": 4.7418
         },
@@ -253,6 +268,11 @@
             "racr_roll3"
           ],
           "kept": true,
+          "ros_mae_at_checkpoint": {
+            "3": 2.929,
+            "6": 2.878,
+            "9": 2.8931
+          },
           "season_wins": 4,
           "weekly_mae": 4.7709
         },
@@ -265,6 +285,11 @@
             "snap_share_roll3"
           ],
           "kept": true,
+          "ros_mae_at_checkpoint": {
+            "3": 2.8796,
+            "6": 2.8281,
+            "9": 2.8608
+          },
           "season_wins": 5,
           "weekly_mae": 4.7452
         }
