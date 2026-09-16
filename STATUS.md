@@ -32,9 +32,10 @@ not a session log. Use `git log` and focused component docs for history.
 - Flock's public web API is now integrated behind `--flock` for explicit offers
   and discovery finalists. The API is undocumented, so failures remain
   fail-closed and the browser workflow remains a fallback audit.
-- Buy-low/sell-high routing exists, but structural usage data is still manual.
-  The next preferred free source is nflverse weekly player stats plus snap
-  counts; do not fit empirical weights until multiple scored weeks exist.
+- Structural volume metrics (snap share and target share) are now fully integrated
+  via the live Sleeper stats API into the runtime snapshot and surface naturally
+  for buy-low/sell-high trade intents without additional manual fetching. Empirical
+  weights have deliberately not been fitted yet.
 - T8 risk-aware decisions remains intentionally deferred until several weeks of
   scored data exist.
 - No real curated assumption entries exist yet; current assumption tests use
@@ -46,8 +47,8 @@ not a session log. Use `git log` and focused component docs for history.
 T10 (conversational trade intents) is complete. Three new intents route
 through classify_intent: roster_surplus_trade_away (marginal lineup utility),
 buy_low_targets, and sell_high_targets. Buy-low/sell-high currently provide
-league roster context with an honest warning that structural volume metrics
-are not yet automated; surplus computes real per-player marginal PPG.
+league roster context with integrated real-world volume metrics (snap share,
+target share); surplus computes real per-player marginal PPG.
 
 ## Validation and handoff
 
