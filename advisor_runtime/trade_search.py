@@ -80,14 +80,17 @@ def discover(snapshot, manager=None, limit=3, max_candidates=66, mode="ours"):
                 after = [p for p in roster["player_ids"] if p not in outgoing] + list(incoming)
                 for p in incoming:
                     without, _ = a._roster_average([x for x in after if x != p], snapshot, result["weeks"], slots)
-                    if without is not None and full - without <= 0:
+                    if without is None or full - without <= 0:
                         useful = False
             if not useful:
                 padding += 1
                 continue
             sort_value = ours if mode == "ours" else ours + min(theirs, 2) * .2
             rows.append((sort_value, ours, theirs, terms))
-        rows.sort(key=lambda r: (-r[0], -r[1], -r[2], r[3]["give"], r[3]["get"]))
+        if mode == 'ours':
+            rows.sort(key=lambda r: (-r[0], r[3]['give'], r[3]['get']))
+        else:
+            rows.sort(key=lambda r: (-r[0], -r[1], -r[2], r[3]['give'], r[3]['get']))
         finalists = [a.evaluate_trade(snapshot, terms) for *_, terms in rows[:max(1, min(limit, 5))]]
     finally:
         a.optimize_lineup = original
