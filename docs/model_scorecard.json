@@ -1,0 +1,345 @@
+{
+  "as_of": "2026-09-15",
+  "current_engine_local_baseline": {
+    "mae_by_source": {
+      "market_anchor": 5.5757,
+      "market_anchor_blend": 5.5757,
+      "sleeper_projection_feed": 4.578
+    },
+    "n": 190,
+    "scope": "local 2026 scored sample; not directly comparable to the historical walk-forward rows"
+  },
+  "evaluation_seasons": [
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "final_features": [
+    "actual_roll3",
+    "career_actual_prior",
+    "xfp_roll3",
+    "career_xfp_prior",
+    "td_gap_roll3",
+    "target_share_roll3",
+    "air_yards_share_roll3",
+    "wopr_roll3",
+    "racr_roll3",
+    "snap_share_roll3",
+    "pass_play_participation_roll3",
+    "ngs_rec_separation_roll3",
+    "ngs_rec_yac_oe_roll3",
+    "ngs_rush_ryoe_pa_roll3",
+    "ngs_pass_cpoe_roll3",
+    "ftn_motion_rate_roll3",
+    "ftn_play_action_rate_roll3",
+    "ftn_catchable_rate_roll3",
+    "ftn_drop_rate_roll3",
+    "weekly_ecr",
+    "weekly_ecr_sd",
+    "weekly_ecr_range",
+    "matchup_adjustment"
+  ],
+  "final_step": "6_fitted_matchup",
+  "methodology": {
+    "forecast_rule": "All rolling features are shifted one game; ECR scrape dates precede the first kickoff; train seasons always precede test season.",
+    "interval_rule": "Position-specific 80th percentile absolute residual from the immediately prior season, predicted by earlier seasons.",
+    "route_note": "Public participation data supports pass-play on-field participation, not a verified all-route count; the proxy is tested and only retained if it improves MAE.",
+    "selection_rule": "A source stays only when it reduces aggregate 2021-2025 walk-forward MAE and wins in at least three of five seasons; matchup prior strength alone is fitted on 2020 before evaluation."
+  },
+  "paid_props_plan": {
+    "expected_value": "Props are direct market expectations for player outcomes and plausibly add information beyond team totals, but the gain remains unmeasured.",
+    "method": "Store pre-kickoff snapshots, convert yardage/reception/TD markets to this league's scoring, join by player/game/market timestamp, and add only after the same walk-forward MAE, rank, ROS, and calibration gates pass.",
+    "source": "The Odds API historical event odds/player props"
+  },
+  "scoring": {
+    "fum_lost": -2.0,
+    "pass_2pt": 2.0,
+    "pass_int": -1.0,
+    "pass_td": 4.0,
+    "pass_yd": 0.04,
+    "rec": 1.0,
+    "rec_2pt": 2.0,
+    "rec_td": 6.0,
+    "rec_yd": 0.1,
+    "rush_2pt": 2.0,
+    "rush_td": 6.0,
+    "rush_yd": 0.1
+  },
+  "selection_seasons": [
+    2020
+  ],
+  "source_disposition": {
+    "retained": {
+      "fantasypros_ecr_via_nflverse": true,
+      "ffopportunity_expected_points": true,
+      "fitted_matchup_adjustment": true,
+      "nflverse_implied_team_totals": false,
+      "structural_groups": {
+        "ftn_charting": true,
+        "nextgen_stats": true,
+        "participation": true,
+        "player_stats": true,
+        "snap_counts": true
+      }
+    },
+    "unmeasured": {
+      "ffanalytics_multi_source": "No public point-in-time historical projection archive was identified; the package is integration code, so using current output in a historical scorecard would leak future information.",
+      "player_props": "Historical player-prop snapshots require a paid archive; paid APIs were not authorized, so no accuracy gain is claimed."
+    }
+  },
+  "steps": {
+    "1_trailing_average": {
+      "interval_80_coverage": 0.8043,
+      "interval_mean_width": 17.0066,
+      "mae": 5.2023,
+      "mae_by_position": {
+        "QB": 6.5436,
+        "RB": 5.1989,
+        "TE": 4.1564,
+        "WR": 5.3216
+      },
+      "mae_by_season": {
+        "2021": 5.3945,
+        "2022": 5.2622,
+        "2023": 5.0083,
+        "2024": 5.1476,
+        "2025": 5.2003
+      },
+      "mean_weekly_rank_correlation": 0.5559,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 3.6279,
+        "6": 3.6777,
+        "9": 3.5046
+      }
+    },
+    "2_ffopportunity": {
+      "interval_80_coverage": 0.8061,
+      "interval_mean_width": 14.8937,
+      "mae": 4.7721,
+      "mae_by_position": {
+        "QB": 6.2301,
+        "RB": 4.765,
+        "TE": 3.7096,
+        "WR": 4.8664
+      },
+      "mae_by_season": {
+        "2021": 4.9574,
+        "2022": 4.7433,
+        "2023": 4.6747,
+        "2024": 4.7723,
+        "2025": 4.7134
+      },
+      "mean_weekly_rank_correlation": 0.5971,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.9223,
+        "6": 2.8624,
+        "9": 2.8964
+      }
+    },
+    "3_implied_team_total": {
+      "interval_80_coverage": 0.8045,
+      "interval_mean_width": 14.8607,
+      "kept": false,
+      "mae": 4.7746,
+      "mae_by_position": {
+        "QB": 6.2372,
+        "RB": 4.7683,
+        "TE": 3.7121,
+        "WR": 4.8671
+      },
+      "mae_by_season": {
+        "2021": 4.9578,
+        "2022": 4.7456,
+        "2023": 4.6803,
+        "2024": 4.7739,
+        "2025": 4.7162
+      },
+      "mean_weekly_rank_correlation": 0.5969,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.9318,
+        "6": 2.8781,
+        "9": 2.8937
+      },
+      "season_wins": 0
+    },
+    "4_structural_usage": {
+      "interval_80_coverage": 0.8065,
+      "interval_mean_width": 14.8776,
+      "mae": 4.7392,
+      "mae_by_position": {
+        "QB": 6.2386,
+        "RB": 4.7196,
+        "TE": 3.6734,
+        "WR": 4.8309
+      },
+      "mae_by_season": {
+        "2021": 4.9256,
+        "2022": 4.7091,
+        "2023": 4.6332,
+        "2024": 4.7433,
+        "2025": 4.6856
+      },
+      "mean_weekly_rank_correlation": 0.6042,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.874,
+        "6": 2.8379,
+        "9": 2.8502
+      },
+      "source_ablation": {
+        "ftn_charting": {
+          "coverage": {
+            "ftn_catchable_rate_roll3": 0.5108,
+            "ftn_drop_rate_roll3": 0.5108,
+            "ftn_motion_rate_roll3": 0.5108,
+            "ftn_play_action_rate_roll3": 0.5108
+          },
+          "delta_mae": -0.0015,
+          "features": [
+            "ftn_motion_rate_roll3",
+            "ftn_play_action_rate_roll3",
+            "ftn_catchable_rate_roll3",
+            "ftn_drop_rate_roll3"
+          ],
+          "kept": true,
+          "season_wins": 4,
+          "weekly_mae": 4.7392
+        },
+        "nextgen_stats": {
+          "coverage": {
+            "ngs_pass_cpoe_roll3": 0.1156,
+            "ngs_rec_separation_roll3": 0.3862,
+            "ngs_rec_yac_oe_roll3": 0.3854,
+            "ngs_rush_ryoe_pa_roll3": 0.1541
+          },
+          "delta_mae": -0.0011,
+          "features": [
+            "ngs_rec_separation_roll3",
+            "ngs_rec_yac_oe_roll3",
+            "ngs_rush_ryoe_pa_roll3",
+            "ngs_pass_cpoe_roll3"
+          ],
+          "kept": true,
+          "season_wins": 5,
+          "weekly_mae": 4.7407
+        },
+        "participation": {
+          "coverage": {
+            "pass_play_participation_roll3": 0.9881
+          },
+          "delta_mae": -0.0034,
+          "features": [
+            "pass_play_participation_roll3"
+          ],
+          "kept": true,
+          "season_wins": 4,
+          "weekly_mae": 4.7418
+        },
+        "player_stats": {
+          "coverage": {
+            "air_yards_share_roll3": 0.9967,
+            "racr_roll3": 0.8683,
+            "target_share_roll3": 0.9967,
+            "wopr_roll3": 0.9967
+          },
+          "delta_mae": -0.0012,
+          "features": [
+            "target_share_roll3",
+            "air_yards_share_roll3",
+            "wopr_roll3",
+            "racr_roll3"
+          ],
+          "kept": true,
+          "season_wins": 4,
+          "weekly_mae": 4.7709
+        },
+        "snap_counts": {
+          "coverage": {
+            "snap_share_roll3": 0.9812
+          },
+          "delta_mae": -0.0257,
+          "features": [
+            "snap_share_roll3"
+          ],
+          "kept": true,
+          "season_wins": 5,
+          "weekly_mae": 4.7452
+        }
+      }
+    },
+    "5_consensus_ecr": {
+      "coverage": {
+        "weekly_ecr": 0.6542,
+        "weekly_ecr_range": 0.6542,
+        "weekly_ecr_sd": 0.6542
+      },
+      "interval_80_coverage": 0.8056,
+      "interval_mean_width": 14.8631,
+      "kept": true,
+      "mae": 4.7101,
+      "mae_by_position": {
+        "QB": 6.1918,
+        "RB": 4.7043,
+        "TE": 3.6591,
+        "WR": 4.7906
+      },
+      "mae_by_season": {
+        "2021": 4.8988,
+        "2022": 4.6897,
+        "2023": 4.5951,
+        "2024": 4.7065,
+        "2025": 4.6613
+      },
+      "mean_weekly_rank_correlation": 0.6096,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.762,
+        "6": 2.7325,
+        "9": 2.7943
+      },
+      "season_wins": 5
+    },
+    "6_fitted_matchup": {
+      "interval_80_coverage": 0.8055,
+      "interval_mean_width": 14.8457,
+      "kept": true,
+      "mae": 4.7099,
+      "mae_by_position": {
+        "QB": 6.194,
+        "RB": 4.7042,
+        "TE": 3.6576,
+        "WR": 4.7902
+      },
+      "mae_by_season": {
+        "2021": 4.8987,
+        "2022": 4.6888,
+        "2023": 4.5962,
+        "2024": 4.7078,
+        "2025": 4.6586
+      },
+      "mean_weekly_rank_correlation": 0.6097,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.774,
+        "6": 2.7344,
+        "9": 2.7892
+      },
+      "season_wins": 3,
+      "selected_prior_games": 16.0,
+      "selection_mae": 5.1057,
+      "tuning_mae": {
+        "0.0": 5.1147,
+        "16.0": 5.1057,
+        "2.0": 5.1103,
+        "32.0": 5.1065,
+        "4.0": 5.1094,
+        "8.0": 5.1091
+      }
+    }
+  }
+}

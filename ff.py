@@ -76,6 +76,15 @@ def parser():
             "contains at least one player-week"
         ),
     )
+    model_scorecard = sub.add_parser(
+        "model-scorecard",
+        help="Run the 2021-2025 point-in-time public projection scorecard",
+    )
+    model_scorecard.add_argument(
+        "--force",
+        action="store_true",
+        help="Rebuild the cached nflverse feature table before scoring",
+    )
     for command in ("packet", "trade", "lineup", "rankings", "movers", "transactions", "discover"):
         q = sub.add_parser(command)
         q.add_argument("--offline", action="store_true")
@@ -150,6 +159,24 @@ def worker(args):
     if args.command == "refresh":
         snapshot = a.build_snapshot(force=args.rebuild, quick=True)
         save({"status": "refreshed", **a.status_packet(snapshot)})
+        return
+    if args.command == "model-scorecard":
+        from advisor_runtime.public_model_scorecard import (
+            DEFAULT_REPORT,
+            run_scorecard,
+            train_final_model,
+        )
+
+        report, frame, features = run_scorecard(force=args.force)
+        DEFAULT_REPORT.parent.mkdir(parents=True, exist_ok=True)
+        DEFAULT_REPORT.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        train_final_model(frame, features, report)
+        save({
+            "status": "scored",
+            "report": str(DEFAULT_REPORT),
+            "final_step": report["final_step"],
+            "steps": report["steps"],
+        })
         return
     if args.command == "backtest":
         from advisor_runtime import backtest as b
@@ -446,7 +473,11 @@ def main(argv=None):
     if args.command == "status":
         print(json.dumps(local_status(), allow_nan=False))
         return 0
-    timeout = args.timeout if args.timeout is not None else (120 if args.command in {"refresh", "selftest", "backtest"} else 45)
+    timeout = args.timeout if args.timeout is not None else (
+        600 if args.command == "model-scorecard"
+        else 120 if args.command in {"refresh", "selftest", "backtest"}
+        else 45
+    )
     if not 0 < timeout <= 600:
         raise SystemExit("--timeout must be greater than 0 and at most 600 seconds")
     if args.command == "selftest":
