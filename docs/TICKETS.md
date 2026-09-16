@@ -29,7 +29,8 @@ T2b: obtain verified identity/event metadata, team-total allocations and
 closing-reference/final-box-score evidence for three players in one settled
 week; run the original numerical acceptance below and refine the converter
 if needed. Existing history alone does not establish these references.
-Complete T2b before starting T3. Do not treat the synthetic tests as empirical
+T2b is deferred by the user's 2026-09-12 instruction; T3 may proceed without
+weakening or substituting T2b validation. Do not treat the synthetic tests as empirical
 validation or the conditional stat variance as calibrated forecast variance.
 
 Build `advisor_runtime/market_anchor.py`: from an SGO snapshot (lines + BOTH
@@ -48,6 +49,9 @@ scores distribution shape (not exact points -- check the anchor is within
 ~1 FP of the consensus close). Unit test included.
 
 ## T3 — Assumption registry + conservative blender  [CORE]
+Implemented 2026-09-12; see docs/ASSUMPTIONS.md for the registry and guard
+contract. Acceptance results and conservative decisions are in STATUS.md.
+
 Build `advisor_runtime/assumptions.py`: JSON schema per docs/FORECASTING.md;
 apply() blends anchor + weighted deltas with the 15% cap; half-life decay for
 time-sensitive assumptions; games-played probability support (injury/workload
