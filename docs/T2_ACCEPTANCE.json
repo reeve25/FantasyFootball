@@ -1,5 +1,5 @@
 {
-  "status": "blocked",
+  "status": "PASS (t2b_settled_check, 2026-09-15) -- see that key; earlier top-level fields below are historical (pre-settlement) and superseded",
   "check": "T2 settled-week three-player acceptance",
   "cached_events": 18,
   "settled_cached_events": 0,
@@ -315,5 +315,73 @@
     "market_anchor_pure_still_null_by_design": "independent_projection_checks['market_anchor'] (pure, no fallback) remains all-null for this trade, exactly as T2e left it -- required by the ticket's 'do not weaken existing independent_projection_checks; the new path is additive' rule. Only market_anchor_blend was extended.",
     "full_test_suite": "python ff.py --selftest: 129 + 31 passing (160 total, 6 new tests for apply_consensus_fallback). One unrelated pre-existing flaky test (test_focused_market_packet_flags_and_warns_on_lost_book_coverage, logged in T2d's entry) failed once during this session and passed on immediate re-run -- not a T2f regression.",
     "default_behavior_unchanged": "Confirmed: ff.py trade with no --projection-source flag returns perspective_delta_pg: -0.0093, identical to the T4/T2d/T2e baselines. select_projection_source, evaluate_trade, optimize_lineup, _roster_average, _legalize_roster, and _projection_for_week are untouched by T2f -- the fallback lives entirely in market_anchor_projection.apply_consensus_fallback (new) plus its ff.py wiring."
+  },
+  "t2b_settled_check": {
+    "checked_at_utc": "2026-09-15T00:00:00Z",
+    "ticket": "T2b: settled-week converter validation (unblocked by the 2026-09-14 T5 finality fix)",
+    "verdict": "PASS",
+    "unblocking_event": "The 2026-09-14 T5 repair session fixed ff.py backtest's season/scoring bug and added a fresh SportsGameOdds event-status check (market_sources.fetch_event_status/classify_event_status). Reused here unmodified, per this ticket's explicit instruction not to rebuild it: scan_pre_kickoff_events() + fetch_event_status()/classify_event_status() found 10 real Week 1 events independently confirmed 'final' by a fresh provider status check, not by the stale pre-kickoff snapshot's own status or by Sleeper's gp field alone.",
+    "independent_closing_line_reference": {
+      "attempted": true,
+      "result": "NOT reliably obtainable with what exists in this repo -- disclosed explicitly per this ticket's instruction, no silent substitution",
+      "evidence": [
+        "market_sources.the_odds_api() -- the only OTHER provider in this repo with real fetch code -- was called live for a Week-1-played team (2026-09-15). It queries The Odds API's /v4/sports/americanfootball_nfl/events endpoint, which is a current/upcoming-events listing, not a historical-odds endpoint. Direct inspection of that raw response showed 17 events, earliest commence_time 2026-09-15T00:15:00Z (a Monday-night game still upcoming) -- zero Week 1 (already-kicked-off) games present. Result for the target player: {\"status\": \"no_posted_lines\", \"players\": {}}.",
+        "market_sources.source_configuration() shows bettingpros=True (a secret key exists) but no fetch function for BettingPros exists anywhere in this codebase -- building one would be new provider-integration work, not reuse, and out of scope for this ticket. fantasypros=False (no key). underdog() is hard-disabled by design (test_underdog_adapter_is_hard_disabled)."
+      ],
+      "conclusion": "No genuinely independent (different data source) closing-line reference is obtainable for a settled week with this repo's current providers. Falling back to T2's own originally-specified hand-verification path instead, exactly as instructed."
+    },
+    "hand_verification_method": "Two checks, both using ONLY locally-stored pre-kickoff snapshot data and Sleeper's real settled box scores -- no fabricated or substituted reference data: (1) approximately-one-FP consensus-close check, restricted to the YARDAGE components only (pass_yd/rush_yd/rec_yd) -- this is the original T2 ticket's own literal scope (de-vigging a yardage line's mean from its price pair) and the only place a symmetric book line's median is the same quantity as the converter's implied mean; the market_anchor.py de-vig+SD computation (market_implied_mean) is compared against market_sources._book_summary()'s robust-median-of-raw-lines computation (consensus_close_line) for the SAME stored book lines -- two different computational methods over the same real data, not two independent data sources, disclosed as such. The td/rec (Poisson count-market) components are NOT included in this specific FP check: their posted 'line' is a threshold (e.g. 1.5 = '2+'), not a mean, so a raw median-of-lines is not the same quantity as their Poisson-solved implied mean -- comparing them would not be an apples-to-apples check. (2) final-box-score distribution-shape check, all priced components including td/rec: z = (actual - market_mean) / sqrt(variance) from market_anchor.convert_snapshot's own per-stat stat_distributions, using the real Sleeper settled box score as 'actual' (rush_td+rec_td summed for the 'td' component, since Sleeper's box score has no matching aggregate key -- same fix used in backtest.py's component_validation).",
+    "players": [
+      {
+        "pos": "QB", "name": "Trevor Lawrence", "pid": "7523", "week": 1,
+        "event_id": "4jBCq3tGzUeKRcFsw69g",
+        "forecast_cutoff_utc": "2026-09-12T19:31:15.912855+00:00",
+        "anchor_fp": 11.316533071615385, "confidence": "conditional_market",
+        "consensus_close_check": {
+          "pass_yd": {"market_implied_mean": 233.1207, "consensus_close_line": 233.5, "book_count": 4, "anchor_fp_contribution": 9.3248, "consensus_fp_contribution": 9.34, "diff_fp": 0.0152}
+        },
+        "yardage_fp_diff_from_consensus_close": 0.0152,
+        "distribution_shape": {
+          "pass_yd": {"market_mean": 233.1207, "sd": 75.501, "actual": 245.0, "z_score": 0.157},
+          "td": {"market_mean": 0.332, "sd": 0.5762, "actual": 0, "z_score": -0.576}
+        }
+      },
+      {
+        "pos": "RB", "name": "Breece Hall", "pid": "8155", "week": 1,
+        "event_id": "0xRBT9Dxwxwnptx7dnV4",
+        "forecast_cutoff_utc": "2026-09-12T19:31:15.912855+00:00",
+        "anchor_fp": 15.083112661984234, "confidence": "conditional_market",
+        "consensus_close_check": {
+          "rush_yd": {"market_implied_mean": 65.5411, "consensus_close_line": 64.5, "book_count": 4, "anchor_fp_contribution": 6.5541, "consensus_fp_contribution": 6.45, "diff_fp": 0.1041},
+          "rec_yd": {"market_implied_mean": 20.1987, "consensus_close_line": 20.5, "book_count": 5, "anchor_fp_contribution": 2.0199, "consensus_fp_contribution": 2.05, "diff_fp": 0.0301}
+        },
+        "yardage_fp_diff_from_consensus_close": 0.074,
+        "distribution_shape": {
+          "rush_yd": {"market_mean": 65.5411, "sd": 38.5141, "actual": 102.0, "z_score": 0.947},
+          "rec_yd": {"market_mean": 20.1987, "sd": 15.0047, "actual": 16.0, "z_score": -0.28},
+          "td": {"market_mean": 0.6125, "sd": 0.7843, "actual": 1.0, "z_score": 0.494},
+          "rec": {"market_mean": 2.8343, "sd": 1.6837, "actual": 2.0, "z_score": -0.496}
+        }
+      },
+      {
+        "pos": "WR", "name": "Garrett Wilson", "pid": "8146", "week": 1,
+        "event_id": "0xRBT9Dxwxwnptx7dnV4",
+        "forecast_cutoff_utc": "2026-09-12T19:31:15.912855+00:00",
+        "anchor_fp": 14.136969155320774, "confidence": "conditional_market",
+        "consensus_close_check": {
+          "rec_yd": {"market_implied_mean": 62.3065, "consensus_close_line": 63.5, "book_count": 5, "anchor_fp_contribution": 6.2307, "consensus_fp_contribution": 6.35, "diff_fp": 0.1194}
+        },
+        "yardage_fp_diff_from_consensus_close": 0.1194,
+        "distribution_shape": {
+          "rec_yd": {"market_mean": 62.3065, "sd": 32.02, "actual": 79.0, "z_score": 0.521},
+          "td": {"market_mean": 0.3643, "sd": 0.6048, "actual": 0, "z_score": -0.602},
+          "rec": {"market_mean": 5.7203, "sd": 2.3923, "actual": 6.0, "z_score": 0.117}
+        }
+      }
+    ],
+    "player_selection_method": "Chosen before running any check, for continuity with the exact players already used in T2d/T2e/T5's own worked examples (Trevor Lawrence, Breece Hall's teammate set, Garrett Wilson's game) -- not selected after seeing results, no cherry-picking. Filtered only to require a real, fully-priced ('conditional_market' confidence -- no missing required/optional stat) anchor and a confirmed-played, confirmed-final settled result, which 18/27/51 real QB/RB/WR candidates respectively satisfied this week.",
+    "acceptance_verdict": "PASS on both original criteria. (1) Approximately-one-FP consensus-close: all three players' yardage-component anchor sum is within 0.12 FP of the independently-computed (different method, same data) consensus-close median -- QB 0.0152, RB 0.074, WR 0.1194, all far inside the ~1 FP bar. (2) Final-box-score distribution shape: every priced component (7 total across the 3 players, including the td/rec Poisson components) landed within |z|<=0.947 of the anchor's own stated mean/SD -- no outlier, no sign the converter's stated variance is miscalibrated in shape.",
+    "scope_boundary": "This validates the CONVERTER's math (de-vig + SD assumption + Poisson threshold-solve) against real settled outcomes for 3 real players in 1 real week -- it does not validate that YARDAGE_SD_DEFAULTS' provisional per-position constants are the single best possible SD for every player (that would need many more players/weeks to fit a per-position or per-player SD empirically, which is a larger, separate exercise, not this ticket's scope), and it is one week's worth of evidence, not a multi-week validated track record.",
+    "full_test_suite": "python ff.py --selftest: 172 + 31 = 203 passing, unchanged from the 2026-09-14 T5 session -- T2b made no code changes, only ran verification scripts against existing functions (convert_snapshot, fetch_event_status, classify_event_status, fetch_realized_stats, _book_summary), per this ticket's explicit reuse-don't-rebuild instruction."
   }
 }

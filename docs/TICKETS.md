@@ -13,11 +13,11 @@
 # STATUS.md. T1 (spec bootstrap: create this file structure) is complete and
 # deleted from this list.
 
-## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d/T2e/T2f]
+## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d/T2e/T2f; T2 complete as of 2026-09-15 (T2b PASS)]
 
 T2a (2026-09-12): conditional offline converter implemented; eight new unit
 tests pass through `ff.py selftest`. See docs/MARKET_ANCHOR.md for assumptions
-and supported inputs. T2 remains incomplete until T2b passes.
+and supported inputs.
 
 T2d (2026-09-12): sourced and wired the rec_yd/rush_yd SD that T4 exposed as
 missing, via `market_anchor.YARDAGE_SD_DEFAULTS` (provisional per-position
@@ -66,13 +66,22 @@ additively. Existing snapshots untouched. Run selftests and a real fresh-write
 metadata check before committing as "T2c". This sequencing explicitly overrides
 the one-ticket session default for the user's T2c-then-T2b request.
 
-T2b: obtain verified identity/event metadata, team-total allocations and
-closing-reference/final-box-score evidence for three players in one settled
-week; run the original numerical acceptance below and refine the converter
-if needed. Existing history alone does not establish these references.
-T2b is deferred by the user's 2026-09-12 instruction; T3 may proceed without
-weakening or substituting T2b validation. Do not treat the synthetic tests as empirical
-validation or the conditional stat variance as calibrated forecast variance.
+T2b (2026-09-15): PASS. Unblocked by the 2026-09-14 T5 repair session's real
+finality check; one QB (Trevor Lawrence), one RB (Breece Hall), one WR
+(Garrett Wilson) from real settled Week 1 games, confirmed final via the
+existing `fetch_event_status`/`classify_event_status` (reused, not rebuilt).
+A genuinely independent (third-party) closing-line reference was attempted
+(`the_odds_api`) and confirmed NOT obtainable for a settled week with this
+repo's current providers -- disclosed explicitly, not silently substituted.
+Used T2's own originally-specified hand-verification path instead: yardage
+components within ~1 FP of a locally-computed consensus-close median (max
+0.12 FP across all three players, well inside the bar), and every priced
+component (including td/rec) landed within |z|<=0.947 of the anchor's own
+stated distribution -- no outlier. See docs/T2_ACCEPTANCE.json's
+`t2b_settled_check` and STATUS.md's 2026-09-15 entry for full detail. Scope
+note: this validates the converter's math against 3 real players in 1 real
+week, not a multi-week empirical fit of `YARDAGE_SD_DEFAULTS` itself (still
+provisional per-position constants).
 
 Build `advisor_runtime/market_anchor.py`: from an SGO snapshot (lines + BOTH
 prices, see docs/MARKET_HISTORY.md) reconstruct market-implied fantasy points
