@@ -324,6 +324,14 @@ def fetch_live_context(
         if tm and pstats.get("rec_tgt") is not None:
             team_targets[tm] = team_targets.get(tm, 0) + float(pstats["rec_tgt"])
 
+    teams = {k: v for k, v in season_stats.items() if len(k) <= 3 and k.isupper()}
+    dvp = {}
+    for pos in ["qb", "rb", "wr", "te"]:
+        key = f"fan_pts_allow_{pos}"
+        ranked = sorted(teams.keys(), key=lambda t: teams[t].get(key, 0))
+        for rank, tm in enumerate(ranked, 1):
+            dvp.setdefault(tm, {})[pos.upper()] = rank
+
     player_metadata = {}
     for player_id, row in projections.items():
         if not row.get("player_metadata"):
@@ -428,6 +436,7 @@ def fetch_live_context(
         "owner_by_player": owner_by_player,
         "projection_by_player": projections,
         "player_metadata_by_id": player_metadata,
+        "defense_vs_position": dvp,
         "current_lineup": lineup,
         "current_lineup_total": (
             round(sum(float(row["points"]) for row in lineup), 2)

@@ -813,7 +813,7 @@ def classify_intent(question: str, snapshot: dict[str, Any] | None = None) -> st
         )
     ):
         return "league_rankings"
-    if any(phrase in text for phrase in ("trade away", "surplus", "afford to lose")):
+    if any(phrase in text for phrase in ("trade away", "surplus", "afford to lose", "drop", "cut")):
         return "roster_surplus_trade_away"
     if any(phrase in text for phrase in ("buy low", "underperforming")):
         return "buy_low_targets"
@@ -884,11 +884,11 @@ def classify_intent(question: str, snapshot: dict[str, Any] | None = None) -> st
         )
     ):
         return "waiver"
-    if "lineup" in text or "projected starters" in text:
+    if any(phrase in text for phrase in ("lineup", "projected starters", "who should i start", "start or sit", "who to start", "should i start", "should i sit")):
         return "lineup"
     if any(
         phrase in f" {text} "
-        for phrase in (" compare ", " versus ", " vs ", " outlook ", " better ros ")
+        for phrase in (" compare ", " versus ", " vs ", " outlook ", " better ros ", " start over ")
     ):
         return "comparison"
     return "general"
@@ -1194,6 +1194,7 @@ def _sync_live(
         synced_players[str(player_id)] = cell
     synced["players"] = synced_players
     synced["live_source_provenance"] = live.get("source_provenance") or {}
+    synced["defense_vs_position"] = live.get("defense_vs_position") or {}
     roster_provenance = (live.get("source_provenance") or {}).get("rosters") or {}
     if roster_provenance.get("fetched_at_utc"):
         synced["league"]["live_refreshed_at_utc"] = roster_provenance["fetched_at_utc"]
@@ -2141,6 +2142,7 @@ def build_packet(
         "question": question,
         "decision_type": intent,
         "research_time_utc": iso_now(),
+        "defense_vs_position_toughest_to_easiest_rank": current.get("defense_vs_position") or {},
         "projection_snapshot": {
             "generated_at_utc": current.get("generated_at_utc"),
             "age_minutes": round(snapshot_age_minutes(current), 1)
