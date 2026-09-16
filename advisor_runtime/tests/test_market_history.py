@@ -438,6 +438,9 @@ class MarketHistoryTests(unittest.TestCase):
         self.assertEqual(first["players"]["Focus Player"]["resolution_status"]["flags"], [])
         self.assertEqual(first["coverage_warnings"], [])
 
+        import time
+        time.sleep(0.02)  # avoid Windows 15ms timer collision overwriting the first snapshot
+        
         second_source = payload({
             "prop": prop(books={"book-a": {"overUnder": 50.5, "available": False}}),
         })
