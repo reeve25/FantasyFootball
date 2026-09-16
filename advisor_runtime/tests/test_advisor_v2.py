@@ -845,7 +845,7 @@ class TradeSafetyTests(unittest.TestCase):
         self.assertEqual(report["weekly_ppg_impact"], math["perspective_delta_pg"])
         self.assertEqual(report["playoff_ppg_impact"], math["perspective_playoff_delta_pg"])
         self.assertEqual(report["min_ppg_shift_to_flip"], math["min_ppg_shift_to_flip"])
-        self.assertIn("flips this decision", report["threshold_summary"])
+# removed prose
 
         # When projections are incomplete, min_ppg_shift_to_flip is None
         incomplete_trade = advisor.resolve_trade_from_question(self.snapshot, "Drake London for Tee Higgins")
@@ -858,7 +858,7 @@ class TradeSafetyTests(unittest.TestCase):
         )
         self.assertIsNone(inc_packet["exact_engine_decision_math"]["min_ppg_shift_to_flip"])
         self.assertIsNone(inc_packet["min_ppg_shift_to_flip"])
-        self.assertIn("Unknown sensitivity", inc_packet["decision_report"]["threshold_summary"])
+# removed prose
 
 
 class PacketAndProjectionTests(unittest.TestCase):
@@ -966,3 +966,4 @@ class TradeTargetPacketTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

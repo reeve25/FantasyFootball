@@ -1379,11 +1379,18 @@ def resolve_trade_from_question(
             else:
                 give, get = lp, rp
 
+        give_owners = {int(p.get("owner_roster_id") or -1) for p in give}
+        get_owners = {int(p.get("owner_roster_id") or -1) for p in get}
+        active_perspective = perspective_rid
+        if perspective_rid not in give_owners and perspective_rid not in get_owners:
+            if len(give_owners) == 1 and -1 not in give_owners:
+                active_perspective = give_owners.pop()
+
         return resolve_explicit_trade(
             snapshot,
             [p["name"] for p in give],
             [p["name"] for p in get],
-            perspective_roster_id=perspective_rid,
+            perspective_roster_id=active_perspective,
         )
     return None
 
@@ -1721,7 +1728,6 @@ def evaluate_trade(
         "perspective_after_pg": mine_after_value,
         "perspective_delta_pg": persp_delta,
         "min_ppg_shift_to_flip": min_shift,
-        "min_ppg_shift_to_flip_decision": min_shift,
         "counterparty_before_pg": other_before,
         "counterparty_after_pg": other_after_value,
         "counterparty_delta_pg": delta(other_after_value, other_before),
@@ -2219,16 +2225,11 @@ def build_packet(
             shift = trade_math.get("min_ppg_shift_to_flip")
             packet["min_ppg_shift_to_flip"] = shift
             packet["decision_report"] = {
-                "market_anchor": packet.get("market_status") or "not_requested; use --market when it can change this decision",
+                "market_anchor": packet.get("market_status") or "not_requested",
                 "assumptions": packet.get("assumption_list", []),
                 "weekly_ppg_impact": trade_math.get("perspective_delta_pg"),
                 "playoff_ppg_impact": trade_math.get("perspective_playoff_delta_pg"),
                 "min_ppg_shift_to_flip": shift,
-                "threshold_summary": (
-                    f"A net projection swing of {shift:+.2f} PPG flips this decision."
-                    if shift is not None
-                    else "Unknown sensitivity due to incomplete projections."
-                ),
             }
             decisive_fields = (
                 "perspective_before_pg",
@@ -2659,3 +2660,6 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+
