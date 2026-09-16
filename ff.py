@@ -60,6 +60,14 @@ def parser():
     sub.add_parser("selftest", help="Offline regression tests")
     refresh = sub.add_parser("refresh", help="Explicitly rebuild projection evidence")
     refresh.add_argument("--rebuild", action="store_true", help="Bypass upstream caches")
+    sub.add_parser(
+        "backtest",
+        help=(
+            "T5: score stored market-history snapshots against realized results "
+            "(market_anchor / blend / sleeper), writing docs/backtest/*.json. "
+            "Reports \"no_eligible_weeks\" honestly when nothing qualifies yet."
+        ),
+    )
     for command in ("packet", "trade", "lineup", "rankings", "movers", "transactions", "discover"):
         q = sub.add_parser(command)
         q.add_argument("--offline", action="store_true")
@@ -121,6 +129,10 @@ def worker(args):
     if args.command == "refresh":
         snapshot = a.build_snapshot(force=args.rebuild, quick=True)
         save({"status": "refreshed", **a.status_packet(snapshot)})
+        return
+    if args.command == "backtest":
+        from advisor_runtime import backtest as b
+        save(b.run_backtest())
         return
     try:
         snapshot = a.load_snapshot()

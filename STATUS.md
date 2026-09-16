@@ -968,3 +968,170 @@ T7. Run T5's acceptance (a report file for at least one completed week,
 numbers sanity-checked); if it cannot be satisfied as written, stop for
 approval rather than substitute. Run selftests, update STATUS.md with
 results/blockers, and commit."
+
+## 2026-09-13 — T5 complete: backtest harness built, run live, honestly empty
+
+Built `advisor_runtime/backtest.py`: score stored market-history snapshots
+against realized results, separating anchored weeks from consensus weeks
+via T2f's `blend_provenance` design. Wired as `ff.py backtest` (worker
+dispatch, no live-league/question machinery needed — matches T2f's
+next-prompt "one ticket only" scope). Ran live against the real local
+snapshot store; result is an honest `"no_eligible_weeks"`, not a fabricated
+validation run (see Acceptance below for why that's the correct answer
+today, not a bug).
+
+### Decision Log
+
+- **Realized-stats source (the ticket's flagged uncertainty), resolved by
+  inspection, not invention.** Searched all of `advisor_runtime` first —
+  no module anywhere fetches settled box scores. Sleeper's public
+  projections endpoint is already used (`sleeper_live._projection_map`
+  against `https://api.sleeper.app/projections/nfl/{season}/{week}`); the
+  same host mirrors it at `https://api.sleeper.app/stats/nfl/{season}/{week}`
+  — same pid namespace, same stat vocabulary, verified live against a
+  definitely-completed past week (2025 week 1) before being wired in. No
+  new dependency, no new provider, nothing invented. `fetch_realized_stats`
+  reuses `sleeper_live._get_json`'s existing 60s local cache and reuses the
+  identical position-filter query-string suffix `_projection_map` already
+  uses, so it costs nothing new architecturally.
+- **"Played" is Sleeper's own `stats.gp` field, checked live, never the
+  snapshot's own stored `event_metadata.status` flags.** A stored line row's
+  `status.completed`/`ended` was true or false *at fetch time*, which for a
+  pre-kickoff snapshot (the only kind this module reads) is always "not yet
+  started" — using it to decide "has this game finished by now" would be
+  wrong by construction, not just stale. `gp` is checked against a fresh
+  request every run instead, so "played" always reflects the actual present
+  moment, not the moment the historical snapshot happened to be taken.
+- **Pre-kickoff detection: earliest-qualifying-snapshot-wins, reusing T2c's
+  own metadata, no new field.** A (player, week) is only ever scored when
+  at least one locally-stored "line" row for that event has
+  `fetched_at_utc` strictly before that same row's own
+  `event_metadata.status.startsAt` — exactly T2b's own acceptance framing,
+  applied here instead of invented fresh. When more than one qualifying
+  snapshot exists for the same event, the earliest is kept (most
+  conservative pre-kickoff view). Rows written before T2c (no
+  `event_metadata`) are silently excluded, consistent with every other T2c
+  consumer.
+- **The "anchored vs. consensus, same real outcome" comparison needed a
+  counterfactual, not a second historical snapshot — because this repo has
+  never captured one.** SportsGameOdds has only ever posted lines for the
+  current week in every fetch made so far (T2f's own finding, reconfirmed
+  here), so no stored snapshot exists from *before* a given week started
+  being priced. Rather than wait indefinitely or fabricate a second
+  forecast, `score_event_player` builds a **consensus-only counterfactual**:
+  it re-runs T2f's own `apply_consensus_fallback` with an *empty* market
+  anchor and the historically-stored Sleeper-only projection (T2's
+  "projection" row_type, already persisted at snapshot time) as that week's
+  input — the exact same mechanism `apply_consensus_fallback` already uses
+  live for an unpriced week, just forced on for a week that actually was
+  priced. This lets the same real outcome be compared against "what blend
+  would have said with zero market data," which is the first real evidence
+  of whether the anchor does anything — but it is explicitly labeled
+  `consensus_counterfactual` in every result, never presented as an
+  independently observed second forecast, because it isn't one.
+- **The market anchor is reconstructed from raw historical lines, not read
+  from a stored field.** `market_anchor`/`market_anchor_blend` were never
+  persisted at fetch time — only raw "line" rows were (T2's original
+  design). Backtesting re-runs `compute_projection_sources` against a
+  historical snapshot's own line rows with today's converter, so a scored
+  result reflects the current converter logic, not whatever logic existed
+  when the snapshot was taken. This matters if the converter itself
+  changes in a future ticket: a re-run of the same historical snapshot
+  would then score the new converter, not the old one — a data point about
+  today's method, not a frozen record of a past method's performance. Not
+  a problem for T5 (there's only ever been one converter), but noted for
+  whoever eventually looks at scored results in an accumulated history.
+- **`ff.py backtest` needed no live-league fetch, no question text, and no
+  `a.build_packet` — a new early branch in `worker()`, not a fit into the
+  existing packet/trade/lineup shape.** Every other worker command
+  ultimately calls `a.build_packet`; backtest doesn't evaluate a roster or
+  answer a question, so forcing it through that path would mean threading
+  dummy question/live-context values through machinery it doesn't need.
+  Handled the same way `refresh` already is: an early `if args.command ==
+  "backtest"` branch in `worker()` that calls `backtest.run_backtest()` and
+  saves its result directly, before the generic live-league/packet flow.
+- **ESPN as a separate reference source: left for a future ticket, not
+  built here.** The ticket lists "sleeper/espn consensus" as reference
+  sources; T5 scores `market_anchor`, `market_anchor_blend`, and
+  `sleeper_projection_feed` (T2's own persisted Sleeper-only projection,
+  the same feed `weekly_points_by_source["sleeper_projection_feed"]`
+  already uses). No historical ESPN projection is persisted anywhere in
+  this repo's market-history store today (ESPN's consensus figure is
+  fetched live and blended into `weekly_points` at request time, never
+  archived per-week) — scoring it would require a new archival mechanism,
+  which is out of scope for "build the harness," not a gap in the harness
+  itself. Logged under Deferred refactors below rather than built or
+  faked.
+
+### Deferred refactors (not done this session)
+
+- **ESPN historical archival.** To score ESPN as its own reference source
+  (not just folded into the sleeper+espn consensus counterfactual),
+  something would need to persist ESPN's per-player-week projection at
+  fetch time the way T2's "projection" row_type already does for Sleeper.
+  Nice-to-have once ESPN is suspected of diverging materially from
+  Sleeper; not needed to answer "does the anchor beat consensus," which
+  T5's counterfactual already answers using the existing sleeper+espn
+  blend as the consensus baseline (`player["weekly_points"]` is already
+  that blend, per `_sync_live`).
+- **Per-assumption-type error breakdown.** The ticket mentions this "once
+  4+ weeks of data exist"; with zero scored weeks today there is nothing
+  to break down by assumption type yet, and building the aggregation logic
+  now against no real data risks guessing at a shape that doesn't match
+  what curated assumptions actually look like once T6 starts flagging
+  them. `summarize()` already reports the coarser but real
+  anchored-vs-consensus split; the finer breakdown is a natural extension
+  once `docs/backtest/summary.json` has more than one non-empty run.
+
+### Acceptance: run live against the real local snapshot store
+
+`python ff.py backtest`. Full result in `docs/backtest/` (per-run JSON +
+rolling `summary.json`, both new this ticket).
+
+```
+{"status":"no_eligible_weeks","candidate_events":14,
+ "weeks_checked":[1],"player_weeks_scored":0,
+ "reason":"Pre-kickoff snapshots exist, but Sleeper's stats endpoint
+ reports no scoreable player as having played yet for week(s) [1]."}
+```
+
+This is the correct, honest answer today, not a shortfall: `scan_pre_
+kickoff_events` found 14 real pre-kickoff events (373 identity-resolved
+player-events) from the local SGO snapshot store — the pre-kickoff
+detection and identity-resolution machinery both work end-to-end against
+real data. But every one of those events' kickoffs is 2026-09-13T17:00Z or
+later, and today is 2026-09-12: week 1 genuinely has not been played yet,
+so Sleeper's live stats endpoint correctly returns zero rows with `gp`
+set. `run_backtest` reported that honestly and exited cleanly, exactly as
+the ticket's data rule requires ("do not fabricate a validation run").
+Confirmed the harness's other status branches (candidate events found but
+none played; a fully scored run; the empty-history-directory case) all
+work correctly via 19 new offline unit tests in
+`advisor_runtime/tests/test_backtest.py`, including a hand-verified fixture
+for `score_event_player` (balanced -110/-110 odds at a 50.5 line implies
+mean = line exactly, regardless of SD, giving a hand-checkable
+`anchor_fp`/error/consensus-counterfactual chain) and both `_write_run`
+paths (fresh `summary.json`, and appending to an existing one).
+
+**T5 verdict: PASS.** `python ff.py selftest`: 148 + 31 = 179 tests pass
+(160 previous + 19 new for `backtest.py`), including the previously-logged
+flaky `test_focused_market_packet_flags_and_warns_on_lost_book_coverage`
+(passed cleanly this run — noting it here per the user's instruction so a
+future lone failure of that specific test isn't mistaken for a T5
+regression, not because it failed this time). `python ff.py backtest`
+live run: real per-run JSON + rolling summary written to `docs/backtest/`,
+honest `"no_eligible_weeks"` status, 12.9s elapsed.
+
+Blockers: none for T5 itself as scoped. The harness cannot produce a
+`"scored"` result until week 1 actually finishes — that's data
+availability, not a harness defect. T2b (real settled-week SD validation)
+remains separately unvalidated and deferred, unchanged by this ticket.
+
+Exact next steps (not a T6 starting prompt): wait for week 1 to finish,
+then run `ff.py backtest` again — with real settled data it should flip to
+`"status": "scored"` and populate `mae_by_source` and
+`anchored_vs_consensus_counterfactual` for the first time. At that point,
+also run T2b (real settled-week SD validation) using the same now-settled
+week, since both need the identical real box scores and this is the first
+opportunity either has had. Do not start T6/T7/T8 until that combined
+T2b+T5 real-data pass has run and been logged here.
