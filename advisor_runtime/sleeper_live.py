@@ -291,6 +291,7 @@ def fetch_live_context(
     managers = _manager_names(users or [], rosters or [])
     with ThreadPoolExecutor(max_workers=3) as pool:
         projection_future = pool.submit(_projection_map, season, week, scoring, provenance)
+        stats_future = pool.submit(_get_json, f"{SLEEPER_API}/stats/nfl/regular/{season}", provenance=provenance, source="season_stats")
         matchup_future = pool.submit(
             _get_json, f"{SLEEPER_API}/league/{league_id}/matchups/{week}",
             provenance=provenance, source="matchups",
@@ -312,11 +313,35 @@ def fetch_live_context(
             matchups = []
             warnings.append("Current Sleeper matchup was unavailable.")
         transactions = transaction_future.result() if transaction_future else []
-    player_metadata = {
-        player_id: row["player_metadata"]
-        for player_id, row in projections.items()
-        if row.get("player_metadata")
-    }
+        try:
+            season_stats = stats_future.result() or {}
+        except Exception:
+            season_stats = {}
+            warnings.append("Sleeper season stats feed was unavailable.")
+    team_targets = {}
+    for pid, pstats in season_stats.items():
+        tm = (snapshot_players.get(pid) or {}).get("team")
+        if tm and pstats.get("rec_tgt") is not None:
+            team_targets[tm] = team_targets.get(tm, 0) + float(pstats["rec_tgt"])
+
+    player_metadata = {}
+    for player_id, row in projections.items():
+        if not row.get("player_metadata"):
+            continue
+        meta = row["player_metadata"]
+        if player_id in season_stats:
+            p_stats = season_stats[player_id]
+            off_snp = p_stats.get("off_snp", 0)
+            tm_off_snp = p_stats.get("tm_off_snp", 0)
+            if tm_off_snp and off_snp is not None:
+                meta["snap_share_pct"] = round(off_snp / tm_off_snp * 100, 1)
+
+            targets = p_stats.get("rec_tgt", 0)
+            tm = meta.get("team") or (snapshot_players.get(player_id) or {}).get("team")
+            if tm and targets is not None and team_targets.get(tm):
+                meta["target_share_pct"] = round(targets / team_targets[tm] * 100, 1)
+        player_metadata[player_id] = meta
+
     roster_positions = [str(slot) for slot in league.get("roster_positions") or []]
     starter_slots = [slot for slot in roster_positions if slot not in {"BN", "IR", "TAXI"}]
     owner_by_player: dict[str, int] = {}

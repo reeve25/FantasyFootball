@@ -1146,7 +1146,7 @@ def _sync_live(
     for player_id, player in (snapshot.get("players") or {}).items():
         cell = dict(player)
         metadata = metadata_map.get(str(player_id)) or {}
-        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent"):
+        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent", "snap_share_pct", "target_share_pct"):
             if field in metadata:
                 cell[field] = metadata[field]
         owner_id = owner_map.get(str(player_id))
@@ -1967,6 +1967,8 @@ def _trade_target_roster_table(
         "projection_change_pg",
         "status",
         "bye_weeks",
+        "snap_share_pct",
+        "target_share_pct",
     ]
     codes = {
         "lineup_role": {
@@ -2030,6 +2032,8 @@ def _trade_target_roster_table(
                         for value in player.get("bye_weeks") or []
                         if str(value).isdigit()
                     ),
+                    player.get("snap_share_pct"),
+                    player.get("target_share_pct"),
                 ]
             )
         roster_rows.append(
@@ -2410,7 +2414,8 @@ def build_packet(
     elif intent in ("buy_low_targets", "sell_high_targets"):
         if "warnings" not in packet:
             packet["warnings"] = []
-        packet["warnings"].append("Buy-low/Sell-high structural volume metrics (snap/route/target share) are not yet integrated into the runtime snapshot. Evaluate candidates manually using public market line comparisons.")
+        # Volume metrics are now integrated into the live sleeper stats fetch.
+        pass
         player_fields, codes, roster_rows = _trade_target_roster_table(current, week)
         packet["league_roster_player_fields"] = player_fields
         packet["league_rosters"] = roster_rows

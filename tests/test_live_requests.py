@@ -104,7 +104,7 @@ class LiveContextTests(unittest.TestCase):
     def test_independent_facts_run_concurrently_and_skip_transactions(self):
         self.barrier = threading.Barrier(4)
         context = self.context()
-        self.assertEqual(len(self.urls), 6)
+        self.assertEqual(len(self.urls), 7)
         self.assertFalse(any("transactions/" in url for url in self.urls))
         self.assertEqual(context["source_provenance"]["rosters"]["age_seconds"], 0)
 
