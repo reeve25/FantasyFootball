@@ -80,14 +80,24 @@ Verify any performance patch by diffing against the unpatched path.
 - discover excluded 27 of 60 candidates (45%) for incomplete_projection_math on
   a bounded scan, 24.9s of a 45s ceiling. An empty shortlist does not mean no
   good trade exists — nearly half were never priced.
+- The Cowork VM cannot run the engine. scipy is absent and PyPI is blocked by
+  egress policy, so anything importing ff_v6_3 fails at `from scipy.stats
+  import poisson`. Only `status` runs there.
+- latest.json records the executing environment's own path spelling: VM runs
+  store /sessions/.../mnt/FantasyFootball/outputs/..., PowerShell runs store
+  C:\Users\reeve\... Anything resolving paths from latest.json breaks across
+  environments.
 
 ## Environment
 
-Market keys live outside the repo at %USERPROFILE%\.codex\secrets\ — they read
-as unconfigured from any sandboxed environment. Expected, not a
-misconfiguration. advisor.py hard-disables the legacy engine market layer
-(BP_API_KEY="", QUICK=True) by design. Do not "fix" this.
+Market data is PowerShell-only. Keys live outside the repo at
+%USERPROFILE%\.codex\secrets\, so `ff.py status` run from the Cowork VM reports
+all four providers false — sports_game_odds, the_odds_api, bettingpros,
+fantasypros (observed 2026-09-11). Expected, not a misconfiguration.
+advisor.py hard-disables the legacy engine market layer (BP_API_KEY="",
+QUICK=True) by design. Do not "fix" this.
 
-Cowork's local sandbox is broken by Windows KB5124008 (Sept 2026): device_bash
-cannot mount host shares. File staging and committing still work. Run the
-engine from Codex until that clears.
+The Windows KB5124008 sandbox break (Sept 2026) is resolved: uninstalling the
+update restored the device_bash mount. Windows updates are paused until
+mid-October 2026 — the KB reinstalls when they resume and will break the mount
+again.
