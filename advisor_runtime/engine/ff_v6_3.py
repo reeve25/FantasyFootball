@@ -263,6 +263,7 @@ DEAD ENDS (re-probed Sep 4 2026, all still closed): DraftKings 403 CDN.
 """
 import json, re, sys, os, pickle, time, itertools, collections, io, zipfile, tempfile, hashlib, datetime
 import requests, pandas as pd, numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from scipy.stats import poisson
 from scipy.optimize import brentq
 
@@ -277,6 +278,41 @@ BP_API_KEY = os.getenv("BETTINGPROS_API_KEY", "").strip()
 BP_KEY = {"x-api-key": BP_API_KEY} if BP_API_KEY else {}
 CACHE  = ".ffcache"
 QUICK  = "--quick" in sys.argv
+WEEKLY_FETCH_WORKERS = 4
+WEEKLY_REQUEST_TIMEOUT = (5, 20)
+
+
+def _weekly_payloads(weeks, url_for_week, headers, source):
+    """Fetch a bounded batch in deterministic order; never bless a partial pull.
+
+    Each request has separate connection/read limits. A failed request leaves
+    the previous on-disk cache intact instead of refreshing a partial season
+    for another twelve hours. These limits are per request; the public runner
+    supplies the overall refresh deadline.
+    """
+    weeks = list(weeks)
+    if not weeks:
+        return []
+
+    def fetch(week):
+        try:
+            response = requests.get(url_for_week(week), headers=headers,
+                                    timeout=WEEKLY_REQUEST_TIMEOUT)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list) or not payload:
+                raise ValueError("projection response must be a nonempty list")
+            return week, payload, None
+        except Exception as exc:
+            return week, None, type(exc).__name__
+
+    with ThreadPoolExecutor(max_workers=min(WEEKLY_FETCH_WORKERS, len(weeks))) as pool:
+        results = list(pool.map(fetch, weeks))
+    failures = [(week, error) for week, _, error in results if error]
+    if failures:
+        detail = ", ".join(f"week {week}: {error}" for week, error in failures)
+        raise RuntimeError(f"{source} weekly pull incomplete ({detail}); previous cache retained")
+    return [(week, payload) for week, payload, _ in results]
 
 # ---------------------------------------------------------------- scoring
 def score(rec=0, ruyd=0, reyd=0, rutd=0, retd=0, payd=0, patd=0, pint=0, fl=0):
@@ -686,14 +722,11 @@ def src_weekly(weeks=None):
     games."""
     weeks = weeks or WEEKS
     rows = []
-    for wk in weeks:
-        u = (f"https://api.sleeper.app/projections/nfl/{SEASON}/{wk}"
-             "?season_type=regular&position[]=QB&position[]=RB&position[]=WR"
-             "&position[]=TE&order_by=pts_ppr")
-        try:
-            payload = requests.get(u, headers=UA, timeout=60).json()
-        except Exception as e:
-            print(f"  weekly wk{wk} FAIL {type(e).__name__}"); continue
+    url = lambda wk: (f"https://api.sleeper.app/projections/nfl/{SEASON}/{wk}"
+                      "?season_type=regular&position[]=QB&position[]=RB&position[]=WR"
+                      "&position[]=TE&order_by=pts_ppr")
+    for wk, payload in _weekly_payloads(weeks, url, UA, "Rotowire"):
+        before = len(rows)
         for r in payload:
             p, s = r.get("player") or {}, r.get("stats") or {}
             if not p.get("position"): continue
@@ -714,6 +747,8 @@ def src_weekly(weeks=None):
             # the whole point of fixing market 104 would be lost.
             row.update({c: (d[c] if projected else np.nan) for c in COMP})
             rows.append(row)
+        if len(rows) == before:
+            raise RuntimeError(f"Rotowire week {wk} has no player rows; previous cache retained")
     return pd.DataFrame(rows)
 
 def src_espn_weekly(weeks=None):
@@ -737,13 +772,9 @@ def src_espn_weekly(weeks=None):
          {"sortPriority": 100, "sortAsc": True, "value": "PPR"}}}
     h = dict(UA); h.update({"X-Fantasy-Filter": json.dumps(f),
                             "X-Fantasy-Source": "kona", "X-Fantasy-Platform": "kona-PROD"})
-    for wk in weeks:
-        u = (f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{SEASON}"
-             f"/players?scoringPeriodId={wk}&view=kona_player_info")
-        try:
-            payload = requests.get(u, headers=h, timeout=90).json()
-        except Exception as e:
-            print(f"  espn weekly wk{wk} FAIL {type(e).__name__}"); continue
+    url = lambda wk: (f"https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/{SEASON}"
+                      f"/players?scoringPeriodId={wk}&view=kona_player_info")
+    for wk, payload in _weekly_payloads(weeks, url, h, "ESPN"):
         wkout = {}
         for p in payload:
             pos = ESPN_POS.get(p.get("defaultPositionId"))
@@ -758,13 +789,13 @@ def src_espn_weekly(weeks=None):
             wkout[norm(p.get("fullName"), pos)] = score(
                 d["rec"], d["rush_yd"], d["rec_yd"], d["rush_td"], d["rec_td"],
                 d["pass_yd"], d["pass_td"], d["pass_int"], d["fum_lost"])
+        if not wkout:
+            raise RuntimeError(f"ESPN week {wk} has no projected players; previous cache retained")
         out[wk] = wkout
     return out
 
 def espn_weekly_cached(force=False):
-    if force and os.path.exists(f"{CACHE}/espn_weekly.pkl"):
-        os.remove(f"{CACHE}/espn_weekly.pkl")
-    return _cached("espn_weekly", src_espn_weekly, 12*3600)
+    return _cached("espn_weekly", src_espn_weekly, 12*3600, force=force)
 
 def blend_weekly(wk_pts, wk_bye, espn, meta=None, wkly=None):
     """Combine Rotowire + ESPN without turning source omission into half a zero.
@@ -975,9 +1006,7 @@ def weekly_spread_report(spread, board=None, val=None, top=12):
 def weekly_cached(force=False):
     """12h. Shorter than the board on purpose: this is the layer whose whole
     job is to be current, and the upstream feed rebuilds daily."""
-    if force and os.path.exists(f"{CACHE}/weekly.pkl"):
-        os.remove(f"{CACHE}/weekly.pkl")
-    return _cached("weekly", src_weekly, 12*3600)
+    return _cached("weekly", src_weekly, 12*3600, force=force)
 
 # ONE BAD ROW MUST NOT FLIP A TEAM'S BYE. The obvious rule -- "a team is off
 # in week W if NOBODY on it has an opponent" -- is right in principle and
@@ -1418,14 +1447,43 @@ def apply_overrides(board, wk_pts=None, verbose=True):
     return board, applied, refused
 
 # ------------------------------------------------------------------ cache
-def _cached(name, fn, ttl):
+def cache_info(name):
+    """Actual persisted fetch time; reading a cache never makes it fresh."""
+    path = os.path.join(CACHE, f"{name}.pkl")
+    try:
+        stamp = os.path.getmtime(path)
+    except FileNotFoundError:
+        return {"name": name, "fetched_at_utc": None, "age_hours": None}
+    return {"name": name,
+            "fetched_at_utc": datetime.datetime.fromtimestamp(
+                stamp, datetime.timezone.utc).isoformat(timespec="seconds"),
+            "age_hours": max(0.0, (time.time() - stamp) / 3600)}
+
+
+def _cached(name, fn, ttl, force=False):
     os.makedirs(CACHE, exist_ok=True)
     p = f"{CACHE}/{name}.pkl"
-    if os.path.exists(p) and time.time() - os.path.getmtime(p) < ttl:
+    if not force and os.path.exists(p) and time.time() - os.path.getmtime(p) < ttl:
         age = (time.time() - os.path.getmtime(p)) / 3600
         print(f"  [cache] {name}: {age:.1f}h old")
-        return pickle.load(open(p, "rb"))
-    v = fn(); pickle.dump(v, open(p, "wb")); return v
+        with open(p, "rb") as handle:
+            return pickle.load(handle)
+    v = fn()
+    # Concurrent readers see either the entire previous or entire new value.
+    # A fetch or serialization failure preserves the previous file and mtime.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=CACHE, prefix=f".{name}-",
+                                         suffix=".tmp", delete=False) as handle:
+            temporary = handle.name
+            pickle.dump(v, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, p)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.remove(temporary)
+    return v
 
 def board_cached(force=False):
     """24 hours, keyed by market-auth mode.
@@ -1437,10 +1495,7 @@ def board_cached(force=False):
     """
     variant = "quick" if QUICK else ("market" if BP_API_KEY else "nomarket")
     name = f"board_{variant}"
-    p = f"{CACHE}/{name}.pkl"
-    if force and os.path.exists(p):
-        os.remove(p)
-    b = _cached(name, build, 24*3600)
+    b = _cached(name, build, 24*3600, force=force)
     b.to_csv("board.csv", index=False)
     return b
 
@@ -2683,11 +2738,22 @@ def stream_pool(board, players, rosters, mat, rates, per_pos=3, look=15):
     return out
 
 def _pg_week(pids, val, mat, rates, pool, week):
+    """Price only this roster, avoiding a full player-board scan per week.
+
+    The previous implementation visited thousands of unrelated players for
+    every candidate trade. Restricting the lookup to roster IDs is equivalent
+    because best8 reads only those IDs. No identity cache is needed, so a
+    projection changed in place is immediately reflected in the next score.
+    """
+    keep = list(pids)
     wv = {}
-    for pid, (v, pos, nm) in val.items():
+    for pid in keep:
+        value = val.get(pid)
+        if value is None:
+            continue
+        v, pos, nm = value
         k = norm(nm, pos)
         wv[pid] = ((mat[k][week] if k in mat else 0.0), pos, nm)
-    keep = list(pids)
     for pos, cands in (pool or {}).items():
         if not cands: continue
         r, nm, m = cands[0]

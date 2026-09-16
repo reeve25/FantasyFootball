@@ -13,3 +13,4 @@ snapshots/
 *.log
 *.zip
 .edit.lock
+advisor_runtime/*.csv

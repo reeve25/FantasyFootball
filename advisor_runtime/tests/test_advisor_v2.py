@@ -632,7 +632,9 @@ class TradeSafetyTests(unittest.TestCase):
         self.assertNotIn(9, {
             row["roster_id"] for row in packet["involved_rosters"]
         })
-        self.assertFalse(packet["warnings"])
+        # This fixture has no verified provider timestamps. Perspective
+        # resolution must succeed while the new freshness warnings remain.
+        self.assertTrue(any("stale" in warning for warning in packet["warnings"]))
 
     def test_friend_trade_math_uses_neutral_labels_not_my_labels(self):
         snapshot = self._three_week_trade_snapshot()
