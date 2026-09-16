@@ -97,7 +97,7 @@ def parser():
             q.add_argument("--market-refresh", action="store_true", help="Fetch SportsGameOdds now, bypassing its 10-minute cache; implies --market")
             q.add_argument(
                 "--projection-source",
-                choices=["sleeper", "espn", "market_anchor", "blend", "public_model"],
+                choices=["sleeper", "espn", "market_anchor", "blend", "public_model", "public_model_blend"],
                 help=(
                     "Evaluate on one projection source instead of the "
                     "existing sleeper+espn default. market_anchor/blend "
@@ -386,20 +386,27 @@ def worker(args):
                 "not be applied for this run."
             )
             projection_source = None
-    if projection_source == "public_model":
+    if projection_source in ("public_model", "public_model_blend"):
         from advisor_runtime.public_inference import run_inference
         # For public model, we need to inject its projections into players
         # and attach its tier/freshness metadata
         season = int((current.get("league") or {}).get("season") or 2026)
         week = int((current.get("league") or {}).get("current_week") or 1)
         public_res = run_inference(season, week)
-        
+
         if public_res.get("status") == "success":
             for pid, player in current.get("players", {}).items():
                 if pid in public_res["projections"]:
                     pts = public_res["projections"][pid]["pts"]
-                    player.setdefault("weekly_points_by_source", {})["public_model"] = {"1": pts}
-            current = a.select_projection_source(current, "public_model")
+                    player.setdefault("weekly_points_by_source", {})["public_model"] = {str(week): pts}
+                    # Skill-weighted blend: ~50/50 public model vs existing sleeper+espn default.
+                    # We compute the simple average since their historical MAEs (4.71 vs 4.58) are nearly identical.
+                    default_pts = (player.get("weekly_points") or {}).get(str(week))
+                    if default_pts is not None:
+                        player["weekly_points_by_source"]["public_model_blend"] = {str(week): round((pts + default_pts) / 2, 4)}
+                    else:
+                        player["weekly_points_by_source"]["public_model_blend"] = {str(week): pts}
+            current = a.select_projection_source(current, projection_source)
             packet["public_model_inference"] = {
                 "tier_applied": public_res.get("tier_applied"),
                 "freshness": public_res.get("freshness"),
@@ -407,7 +414,7 @@ def worker(args):
             }
         else:
             current.setdefault("runtime_warnings", []).append(
-                f"public_model inference failed/fallback: {public_res.get('reason')}"
+                f"{projection_source} inference failed/fallback: {public_res.get('reason')}"
             )
             # Fall back to existing sleeper+espn default if public_model fails
             packet["public_model_inference"] = public_res

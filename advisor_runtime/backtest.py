@@ -79,7 +79,7 @@ from advisor_runtime.market_sources import (
 
 REALIZED_STATS_URL = "https://api.sleeper.app/stats/nfl"
 DEFAULT_OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "backtest"
-SOURCES = ("market_anchor", "market_anchor_blend", "sleeper_projection_feed")
+SOURCES = ("market_anchor", "market_anchor_blend", "sleeper_projection_feed", "public_model", "public_model_blend")
 
 
 def _parse_iso(value: Any) -> dt.datetime | None:
@@ -230,6 +230,7 @@ def score_event_player(
     *,
     scoring: dict[str, float],
     realized: dict[str, dict[str, Any]],
+    public_model_fp: float | None = None,
 ) -> dict[str, Any] | None:
     """One player-week's scored record, or None if nothing is scoreable
     (player didn't actually play, or no realized stats exist for them).
@@ -316,6 +317,10 @@ def score_event_player(
         for stat, implied_value in implied_stats.items()
     }
 
+    public_model_blend_fp = None
+    if public_model_fp is not None and sleeper_fp is not None:
+        public_model_blend_fp = round((public_model_fp + sleeper_fp) / 2, 4)
+
     return {
         "event_id": event_id,
         "pid": pid,
@@ -327,10 +332,14 @@ def score_event_player(
             "market_anchor": anchor_fp,
             "market_anchor_blend": anchored_blend_fp,
             "sleeper_projection_feed": sleeper_fp,
+            "public_model": public_model_fp,
+            "public_model_blend": public_model_blend_fp,
             "error": {
                 "market_anchor": error(anchor_fp),
                 "market_anchor_blend": error(anchored_blend_fp),
                 "sleeper_projection_feed": error(sleeper_fp),
+                "public_model": error(public_model_fp),
+                "public_model_blend": error(public_model_blend_fp),
             },
         },
         "consensus_counterfactual": {
@@ -516,6 +525,7 @@ def run_backtest(
         return result
 
     realized_cache: dict[int, dict[str, dict[str, Any]]] = {}
+    public_model_cache: dict[int, dict[str, float]] = {}
     records: list[dict[str, Any]] = []
     weeks_checked: set[int] = set()
     for event_id, event_info in final_events.items():
@@ -523,10 +533,22 @@ def run_backtest(
         weeks_checked.add(week)
         if week not in realized_cache:
             realized_cache[week] = realized_fetcher(season, week)
+
+        if week not in public_model_cache:
+            from advisor_runtime.public_inference import run_inference
+            public_res = run_inference(int(season), week)
+            projections: dict[str, float] = {}
+            if public_res.get("status") == "success":
+                for pid, pdata in public_res.get("projections", {}).items():
+                    projections[pid] = pdata.get("pts")
+            public_model_cache[week] = projections
+
         players = event_players(event_id, event_info, engine_players)
         for player in players:
+            public_model_fp = public_model_cache[week].get(player["pid"])
             record = score_event_player(
-                event_id, event_info, player, scoring=scoring, realized=realized_cache[week]
+                event_id, event_info, player, scoring=scoring, realized=realized_cache[week],
+                public_model_fp=public_model_fp,
             )
             if record is not None:
                 records.append(record)

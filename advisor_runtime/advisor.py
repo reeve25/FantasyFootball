@@ -241,13 +241,14 @@ def _projection_for_week(player: dict[str, Any], week: int) -> tuple[float | Non
 # sleeper+espn average) -- selecting a source never runs through this
 # average. "blend" is the T3 assumption-registry blend on top of the T2
 # market anchor, not a synonym for the existing sleeper+espn average.
-PROJECTION_SOURCES = ("sleeper", "espn", "market_anchor", "blend", "public_model")
+PROJECTION_SOURCES = ("sleeper", "espn", "market_anchor", "blend", "public_model", "public_model_blend")
 _PROJECTION_SOURCE_KEYS = {
     "sleeper": "sleeper_projection_feed",
     "espn": "espn",
     "market_anchor": "market_anchor",
     "blend": "market_anchor_blend",
     "public_model": "public_model",
+    "public_model_blend": "public_model_blend",
 }
 
 
