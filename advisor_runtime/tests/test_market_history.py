@@ -119,18 +119,26 @@ class MarketHistoryTests(unittest.TestCase):
             result = market_sources.sports_game_odds([{"name": "Focus Player"}])
 
         rows = self.rows(result["line_snapshot"]["path"])
-        self.assertEqual(len(rows), 8 + len(market_sources.SPORTS_GAME_ODDS_STATS))
-        keys = {(row["event_id"], row["player_id"], row["book"], row["market"]) for row in rows}
-        self.assertEqual(len(keys), len(rows))
+        line_rows = [row for row in rows if row["row_type"] == "line"]
+        projection_rows = [row for row in rows if row["row_type"] == "projection"]
+        self.assertEqual(len(line_rows), 8 + len(market_sources.SPORTS_GAME_ODDS_STATS))
+        self.assertEqual(len(projection_rows), 1)
+        self.assertEqual(len(rows), len(line_rows) + len(projection_rows))
+        keys = {(row["event_id"], row["player_id"], row["book"], row["market"], row["side"]) for row in line_rows}
+        self.assertEqual(len(keys), len(line_rows))
         self.assertEqual(
-            {row["book"] for row in rows if row["player_id"] == "p1" and row["event_id"] == "event-1"},
+            {row["book"] for row in line_rows if row["player_id"] == "p1" and row["event_id"] == "event-1"},
             set(books),
         )
-        self.assertIn(999.5, [row["line"] for row in rows])
+        self.assertIn(999.5, [row["line"] for row in line_rows])
         self.assertEqual(
-            {row["market"] for row in rows if row["player_id"] == "p2"},
+            {row["market"] for row in line_rows if row["player_id"] == "p2"},
             set(market_sources.SPORTS_GAME_ODDS_STATS.values()),
         )
+        self.assertEqual({row["side"] for row in line_rows}, {"over"})
+        self.assertEqual(projection_rows[0]["player_name"], "Focus Player")
+        self.assertEqual(projection_rows[0]["points"], None)
+        self.assertEqual(projection_rows[0]["stats"], {})
         self.assertNotIn("other player", result["players"])
         self.assertLessEqual(len(result["players"]["focus player"]["rec_yd"]["books"]), 5)
 
@@ -153,18 +161,99 @@ class MarketHistoryTests(unittest.TestCase):
             "moneyline": prop(betTypeID="ml"),
             "unsupported": prop(statID="unknown_stat"),
             "no-player": prop(playerID=None),
+            "no-side": prop(sideID=""),
         })
         result = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME)
         rows = self.rows(result["path"])
-        self.assertEqual(result["rows"], 2)
-        self.assertEqual({row["book"]: row["line"] for row in rows}, {"posted": 5.5, "zero": 0.0})
+        self.assertEqual(result["rows"], 4)
+        self.assertEqual(result["line_rows"], 4)
+        self.assertEqual(result["projection_rows"], 0)
+        self.assertEqual(
+            {row["book"]: row["line"] for row in rows},
+            {"posted": 5.5, "zero": 0.0, "book-a": 50.5, "book-b": 51.5},
+        )
+        self.assertEqual(
+            {row["book"]: row["side"] for row in rows},
+            {"posted": "over", "zero": "over", "book-a": "under", "book-b": "under"},
+        )
         self.assertEqual(result["fetched_at_utc"], FETCH_TIME)
         for row in rows:
-            self.assertEqual(set(row), {"source", "event_id", "player_id", "book", "market", "line", "fetched_at_utc"})
+            self.assertEqual(
+                set(row),
+                {"row_type", "source", "event_id", "player_id", "book", "market", "side", "line", "price", "fetched_at_utc"},
+            )
+            self.assertEqual(row["row_type"], "line")
             self.assertEqual(row["source"], "SportsGameOdds")
             self.assertEqual(row["fetched_at_utc"], FETCH_TIME)
             self.assertEqual(row["player_id"], "p1")
+            self.assertIsNone(row["price"])
         self.assertNotIn(FEED_TIME, Path(result["path"]).read_text(encoding="utf-8"))
+
+    def test_snapshot_persists_both_sides_with_price_and_full_projection_row(self):
+        odds = {
+            "over": prop(
+                books={
+                    "book-a": {"overUnder": 50.5, "odds": -110, "lastUpdatedAt": FEED_TIME},
+                }
+            ),
+            "under": prop(
+                sideID="under",
+                books={
+                    "book-a": {"overUnder": 50.5, "odds": -105, "lastUpdatedAt": FEED_TIME},
+                },
+            ),
+        }
+        source = payload(odds)
+        players = [
+            {
+                "pid": "9001",
+                "name": "Focus Player",
+                "current_week": 3,
+                "live_week_projection": 14.25,
+                "live_projection_stats": {"rec_yd": 61.2, "rec": 4.8},
+            }
+        ]
+        result = market_sources._write_sports_game_odds_snapshot(source, FETCH_TIME, players)
+        rows = self.rows(result["path"])
+        line_rows = {row["side"]: row for row in rows if row["row_type"] == "line"}
+        projection_rows = [row for row in rows if row["row_type"] == "projection"]
+
+        self.assertEqual(result["rows"], 3)
+        self.assertEqual(result["line_rows"], 2)
+        self.assertEqual(result["projection_rows"], 1)
+        self.assertEqual(line_rows["over"]["line"], 50.5)
+        self.assertEqual(line_rows["over"]["price"], -110)
+        self.assertEqual(line_rows["under"]["line"], 50.5)
+        self.assertEqual(line_rows["under"]["price"], -105)
+
+        self.assertEqual(len(projection_rows), 1)
+        projection = projection_rows[0]
+        self.assertEqual(projection["player_id"], "9001")
+        self.assertEqual(projection["player_name"], "Focus Player")
+        self.assertEqual(projection["week"], 3)
+        self.assertEqual(projection["points"], 14.25)
+        self.assertEqual(projection["stats"], {"rec_yd": 61.2, "rec": 4.8})
+        self.assertEqual(projection["fetched_at_utc"], FETCH_TIME)
+
+    def test_projection_universe_overrides_focused_players_for_snapshot_only(self):
+        response = mock.Mock()
+        response.json.return_value = payload()
+        universe = [
+            {"pid": "1", "name": "Focus Player", "live_week_projection": 10.0, "live_projection_stats": {}},
+            {"pid": "2", "name": "Bench Guy", "live_week_projection": 3.0, "live_projection_stats": {}},
+            {"pid": "3", "name": "Other Player", "live_week_projection": 7.0, "live_projection_stats": {}},
+        ]
+        with mock.patch.object(market_sources.requests, "get", return_value=response):
+            result = market_sources.sports_game_odds(
+                [{"name": "Focus Player"}], projection_universe=universe
+            )
+
+        rows = self.rows(result["line_snapshot"]["path"])
+        projection_rows = [row for row in rows if row["row_type"] == "projection"]
+        self.assertEqual({row["player_name"] for row in projection_rows}, {"Focus Player", "Bench Guy", "Other Player"})
+        self.assertEqual(len(projection_rows), 3)
+        # The provider-facing selection is unaffected: only the requested player comes back.
+        self.assertEqual(set(result["players"]), {"focus player"})
 
     def test_every_fresh_fetch_records_engine_time_and_force_refresh_bypasses_cache(self):
         first_payload = payload()
@@ -194,7 +283,11 @@ class MarketHistoryTests(unittest.TestCase):
         self.assertEqual(first_path.read_bytes(), original_bytes)
         for result, expected in ((first, 50.5), (second, 49.5)):
             rows = self.rows(result["line_snapshot"]["path"])
-            self.assertEqual({row["book"]: row["line"] for row in rows}, {"book-a": expected, "book-b": 51.5})
+            line_rows = [row for row in rows if row["row_type"] == "line"]
+            projection_rows = [row for row in rows if row["row_type"] == "projection"]
+            self.assertEqual({row["book"]: row["line"] for row in line_rows}, {"book-a": expected, "book-b": 51.5})
+            self.assertEqual(len(projection_rows), 1)
+            self.assertEqual(projection_rows[0]["player_name"], "Focus Player")
             stamp = result["line_snapshot"]["fetched_at_utc"]
             self.assertEqual({row["fetched_at_utc"] for row in rows}, {stamp})
             timestamp = dt.datetime.fromisoformat(stamp)

@@ -165,7 +165,10 @@ def worker(args):
         if focus:
             from advisor_runtime.market_sources import focused_market_packet
             packet["market_evidence"] = focused_market_packet(
-                focus, deep=args.deep, force_refresh=market_refresh
+                focus,
+                deep=args.deep,
+                force_refresh=market_refresh,
+                projection_universe=list((current.get("players") or {}).values()),
             )
             packet["market_status"] = "checked; inspect source coverage and timestamps"
             save(packet)
