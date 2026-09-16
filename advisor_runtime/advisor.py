@@ -813,12 +813,16 @@ def classify_intent(question: str, snapshot: dict[str, Any] | None = None) -> st
         )
     ):
         return "league_rankings"
+    if any(phrase in text for phrase in ("trade away", "surplus", "afford to lose")):
+        return "roster_surplus_trade_away"
+    if any(phrase in text for phrase in ("buy low", "underperforming")):
+        return "buy_low_targets"
+    if any(phrase in text for phrase in ("sell high", "overperforming")):
+        return "sell_high_targets"
     if any(
         phrase in text
         for phrase in (
             "trade target",
-            "buy low",
-            "sell high",
             "construct a trade",
             "find a trade",
         )
@@ -2376,6 +2380,40 @@ def build_packet(
             warnings.append(
                 "No comparable prior projection snapshot exists yet."
             )
+    elif intent == "roster_surplus_trade_away":
+        my_roster = next((r for r in current.get("rosters", []) if int(r["roster_id"]) == MY_ROSTER_ID), None)
+        if my_roster and "player_ids" in my_roster:
+            pids = my_roster["player_ids"]
+            slots = (current.get("league") or {}).get("starter_slots", [])
+            math_slots = [s for s in slots if s not in ("BN", "IR", "K", "DEF")]
+            weeks = [week]
+            full_val, _ = _roster_average(pids, current, weeks, math_slots)
+            marginal = {}
+            for pid in pids:
+                without_pids = [p for p in pids if p != pid]
+                without_val, _ = _roster_average(without_pids, current, weeks, math_slots)
+                if full_val is not None and without_val is not None:
+                    marginal[pid] = round(full_val - without_val, 4)
+            players_by_id = current.get("players") or {}
+            packet["roster_marginal_utility"] = {
+                pid: {
+                    "name": (players_by_id.get(pid) or {}).get("name") or pid,
+                    "pos": (players_by_id.get(pid) or {}).get("pos"),
+                    "marginal_ppg": val,
+                }
+                for pid, val in sorted(marginal.items(), key=lambda x: x[1])
+            }
+            packet["roster_surplus_analysis_note"] = "A player with near-zero marginal utility is a bench padding/flex asset who rarely starts, making them prime trade collateral."
+        player_fields, codes, roster_rows = _trade_target_roster_table(current, week)
+        packet["league_roster_player_fields"] = player_fields
+        packet["league_rosters"] = roster_rows
+    elif intent in ("buy_low_targets", "sell_high_targets"):
+        if "warnings" not in packet:
+            packet["warnings"] = []
+        packet["warnings"].append("Buy-low/Sell-high structural volume metrics (snap/route/target share) are not yet integrated into the runtime snapshot. Evaluate candidates manually using public market line comparisons.")
+        player_fields, codes, roster_rows = _trade_target_roster_table(current, week)
+        packet["league_roster_player_fields"] = player_fields
+        packet["league_rosters"] = roster_rows
     elif intent == "trade_targets":
         player_fields, codes, roster_rows = _trade_target_roster_table(
             current, week
@@ -2436,7 +2474,7 @@ def build_packet(
     if size > working_limit:
         # Remove duplicated roster details, never focused evidence.
         trim_keys = ["teams", "involved_rosters", "my_roster"]
-        if intent != "trade_targets":
+        if intent not in ("trade_targets", "roster_surplus_trade_away", "buy_low_targets", "sell_high_targets"):
             trim_keys.insert(0, "league_rosters")
         for key in trim_keys:
             rows = packet.get(key)
@@ -2459,7 +2497,7 @@ def build_packet(
             "Roster player detail was trimmed to respect the packet limit."
         )
         size = _safe_packet_size(packet)
-    if size > working_limit and intent == "trade_targets":
+    if size > working_limit and intent in ("trade_targets", "roster_surplus_trade_away", "buy_low_targets", "sell_high_targets"):
         # Rankings are useful context but are reconstructable later.  The live
         # ownership/player table is not, so protect it when space is tight.
         packet.pop("power_rankings", None)

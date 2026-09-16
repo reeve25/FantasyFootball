@@ -399,6 +399,12 @@ class MatchingAndIntentTests(unittest.TestCase):
             "Should I trade Travis Etienne for Tee Higgins?": "explicit_trade",
             "Drake London for Tee Higgins": "explicit_trade",
             "Tee Higgins for Drake London": "explicit_trade",
+            "Who should I trade away?": "roster_surplus_trade_away",
+            "Where do I have surplus?": "roster_surplus_trade_away",
+            "Who are good buy low targets?": "buy_low_targets",
+            "Buy low RBs": "buy_low_targets",
+            "Who should I sell high on?": "sell_high_targets",
+            "Sell high candidates": "sell_high_targets",
         }
         for question, expected in cases.items():
             with self.subTest(question=question):
