@@ -21,10 +21,7 @@ not a session log. Use `git log` and focused component docs for history.
   `docs/backtest/summary.json`.
 - T2 through T7 and T9 are complete. T2b passed against real settled Week 1
   players; T6 added line/projection deltas and the anti-double-count guard;
-  T7 added conversational trade routing ("X for Y" phrasing), decision
-  sensitivity (`min_ppg_shift_to_flip`), honest empty assumption list, and
-  structured decision report; T9 fixed discovery tie-break and contribution
-  defects.
+  T7 conversational trade routing defects fixed (dynamically resolving third-party trades, removing prose from decision report, removing duplicate sensitivity key). T9 fixed discovery tie-break and contribution defects. QBs market_anchor projection vastly improved by including pass_td and rush_yd.
 - The full offline suite passes: 194 runtime tests plus 34 outer integration
   tests (228 total). Real acceptance check `python ff.py packet "Kenneth Walker
   for Drake London?" --offline` PASS.
