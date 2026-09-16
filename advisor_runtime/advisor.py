@@ -49,7 +49,7 @@ DEFAULT_CONFIG = {
     "snapshot_ttl_minutes": 360,
     "season_end_week": 17,
     "playoff_weeks": [15, 16, 17],
-    "packet_character_limit": 24000,
+    "packet_character_limit": 32000,
 }
 CORE_POSITIONS = {"QB", "RB", "WR", "TE"}
 ALL_POSITIONS = CORE_POSITIONS | {"K", "DEF"}
@@ -1146,7 +1146,7 @@ def _sync_live(
     for player_id, player in (snapshot.get("players") or {}).items():
         cell = dict(player)
         metadata = metadata_map.get(str(player_id)) or {}
-        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent", "snap_share_pct", "target_share_pct"):
+        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent", "snap_share_pct", "target_share_pct", "xFP", "td_regression_signal"):
             if field in metadata:
                 cell[field] = metadata[field]
         owner_id = owner_map.get(str(player_id))
@@ -1970,6 +1970,8 @@ def _trade_target_roster_table(
         "bye_weeks",
         "snap_share_pct",
         "target_share_pct",
+        "xFP",
+        "td_regression_signal",
     ]
     codes = {
         "lineup_role": {
@@ -2035,6 +2037,8 @@ def _trade_target_roster_table(
                     ),
                     player.get("snap_share_pct"),
                     player.get("target_share_pct"),
+                    player.get("xFP"),
+                    player.get("td_regression_signal"),
                 ]
             )
         roster_rows.append(

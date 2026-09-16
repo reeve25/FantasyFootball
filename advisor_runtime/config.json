@@ -3,6 +3,10 @@
   "my_roster_id": 9,
   "snapshot_ttl_minutes": 360,
   "season_end_week": 17,
-  "playoff_weeks": [15, 16, 17],
-  "packet_character_limit": 24000
+  "playoff_weeks": [
+    15,
+    16,
+    17
+  ],
+  "packet_character_limit": 32000
 }

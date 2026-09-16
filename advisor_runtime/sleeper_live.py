@@ -330,7 +330,10 @@ def fetch_live_context(
         key = f"fan_pts_allow_{pos}"
         ranked = sorted(teams.keys(), key=lambda t: teams[t].get(key, 0))
         for rank, tm in enumerate(ranked, 1):
-            dvp.setdefault(tm, {})[pos.upper()] = rank
+            # Bayesian shrinkage toward league average (16.5) based on week
+            shrinkage_factor = max(0.0, (6 - week) / 6.0)
+            shrunk_rank = round((rank * (1 - shrinkage_factor)) + (16.5 * shrinkage_factor), 1)
+            dvp.setdefault(tm, {})[pos.upper()] = shrunk_rank
 
     player_metadata = {}
     for player_id, row in projections.items():
@@ -348,6 +351,13 @@ def fetch_live_context(
             tm = meta.get("team") or (snapshot_players.get(player_id) or {}).get("team")
             if tm and targets is not None and team_targets.get(tm):
                 meta["target_share_pct"] = round(targets / team_targets[tm] * 100, 1)
+            
+            rush_att = p_stats.get("rush_att", 0)
+            meta["xFP"] = round((targets * 1.8) + (rush_att * 0.7), 1)
+            
+            expected_tds = (p_stats.get("rush_yd", 0) + p_stats.get("rec_yd", 0)) / 120.0
+            actual_tds = p_stats.get("rush_td", 0) + p_stats.get("rec_td", 0)
+            meta["td_regression_signal"] = round(expected_tds - actual_tds, 2)
         player_metadata[player_id] = meta
 
     roster_positions = [str(slot) for slot in league.get("roster_positions") or []]
