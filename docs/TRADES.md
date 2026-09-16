@@ -6,6 +6,17 @@ expected PPG of the legal starting lineup: buy players Flock prices below their
 supported lineup value and sell assets it prices above their lineup value.
 This is an on-demand workflow, not a scan for every fantasy question.
 
+The objective is Reeve's own team, not a symmetric win: search for and rank
+offers by Reeve's expected lineup improvement and evidence strength first: a
+modeled counterparty loss is shown as context, never grounds to drop a
+candidate on its own, and it is Flock's verdict below (not the engine's
+counterparty math) that stands in for the other manager's likely acceptance.
+`ff.py discover` defaults to `--mode ours`: it ranks candidates by Reeve's own
+modeled lineup gain and reports the counterparty delta per candidate without
+excluding on it. `--mode mutual` restores the older screen (also requires a
+non-negative counterparty delta, ranked by a blended ours+theirs score) as an
+explicit, deliberately-chosen alternative, not the normal lens.
+
 ## Screen the real opportunity set
 
 1. Refresh live Sleeper ownership/settings and the projection snapshot when
@@ -100,6 +111,45 @@ The bar may lean either way. **You win!**, **They win!**, **You slightly win!**,
 totals, a rank/value sum, or a transient player suggestion do not pass. If the
 site cannot show the complete verdict in the right format, label that offer
 unverified. A Flock fairness label does not promise the manager will accept.
+
+## Adjusting toward Fair Trade! without losing the point of the trade
+
+When a real, plausible package comes back **You win!**/**You're robbing
+them!** rather than **Fair Trade!**, adjust and recheck rather than stopping
+at the first verdict or force-accepting a lopsided one. The loop, in order,
+generic to any pair of teams and any starting package -- do not hardcode
+which players or positions it applies to:
+
+1. Construct for Reeve's own benefit first (a real lineup gain under our
+   evaluator, from Reeve's actual roster, not an arbitrary pairing).
+2. Check Flock's verdict on that exact package.
+3. If not Fair Trade!, adjust the package using another *meaningful*,
+   actually-rostered asset -- a different outgoing centerpiece, or a genuine
+   second exchange where a gain on one side justifies a concession on the
+   other -- and recheck.
+4. Rerun our own evaluator on the exact adjusted assets (including any
+   forced drops) after every adjustment that changes verdict-relevant terms;
+   Flock fairness and our modeled gain are two separate readings of the same
+   package, tracked side by side, never collapsed into one number.
+
+Flock's displayed "OVR" per player is an observed data point about that
+one player, not an established additive trade-value currency -- do not sum
+or subtract OVR across players to predict a verdict, and two "You win!"
+results at different OVR gaps do not bracket a fair threshold; only an
+actually-observed Fair Trade! (or its absence) is evidence.
+
+**Do not pad with bottom-bench throw-ins to chase a verdict change.**
+Verified empirically (2026-09-13): adding a rostered player with a
+near-zero modeled/lineup value to a losing side sometimes visibly shifts
+Flock's balance bar and sometimes does nothing at all, with no reliable way
+to predict which from our own projections alone -- confirmed by adding
+several such players individually and in combination and observing the
+verdict and displayed values before and after each one settled. Treat
+padding as an unreliable, uninformative lever, not a real adjustment: prefer
+swapping in a different meaningful centerpiece or building a genuine
+two-sided exchange instead. If a construction reaches Fair Trade! only by
+degrading Reeve's own modeled gain to near zero or negative, say so plainly
+rather than reporting the fairness pass as if the trade were still worth it.
 
 ## Deliver the decision honestly
 

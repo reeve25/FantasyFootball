@@ -4,7 +4,17 @@ import time
 from . import advisor as a
 
 
-def discover(snapshot, manager=None, limit=3, max_candidates=66):
+def discover(snapshot, manager=None, limit=3, max_candidates=66, mode="ours"):
+    """mode="ours" (the advisor's normal objective, default): rank candidates
+    by Reeve's own modeled lineup gain; a negative counterparty delta is
+    reported for context but never excludes a candidate. mode="mutual": the
+    original screen, which also requires a non-negative counterparty delta
+    and ranks by a blended ours+theirs score -- kept as an explicit
+    alternative, e.g. when a mutually-agreeable-looking shortlist is wanted
+    on its own terms. Neither mode checks Flock; that remains a separate,
+    manual step (see docs/TRADES.md)."""
+    if mode not in ("ours", "mutual"):
+        raise ValueError('mode must be "ours" or "mutual"')
     players = snapshot.get("players") or {}
     rosters = snapshot.get("rosters") or []
     mine = next(r for r in rosters if int(r["roster_id"]) == a.MY_ROSTER_ID)
@@ -54,7 +64,7 @@ def discover(snapshot, manager=None, limit=3, max_candidates=66):
             if ours is None or theirs is None:
                 incomplete += 1
                 continue
-            if ours < .5 or theirs < 0:
+            if ours < .5 or (mode == "mutual" and theirs < 0):
                 negative += 1
                 continue
             if result["perspective_forced_drops"] or result["counterparty_forced_drops"]:
@@ -75,20 +85,42 @@ def discover(snapshot, manager=None, limit=3, max_candidates=66):
             if not useful:
                 padding += 1
                 continue
-            rows.append((ours + min(theirs, 2) * .2, terms))
-        rows.sort(key=lambda r: (-r[0], r[1]["give"], r[1]["get"]))
-        finalists = [a.evaluate_trade(snapshot, terms) for _, terms in rows[:max(1, min(limit, 5))]]
+            sort_value = ours if mode == "ours" else ours + min(theirs, 2) * .2
+            rows.append((sort_value, ours, theirs, terms))
+        rows.sort(key=lambda r: (-r[0], -r[1], -r[2], r[3]["give"], r[3]["get"]))
+        finalists = [a.evaluate_trade(snapshot, terms) for *_, terms in rows[:max(1, min(limit, 5))]]
     finally:
         a.optimize_lineup = original
+    negative_label = (
+        "insufficient_reeve_gain_below_0.5ppg" if mode == "ours"
+        else "insufficient_gain_or_counterparty_loss"
+    )
+    sort_note = (
+        "Ranked by Reeve's own modeled lineup PPG gain only; a negative "
+        "counterparty delta is reported per candidate but never excludes or "
+        "demotes it."
+        if mode == "ours" else
+        "Ranked by a blended ours+min(theirs,2)*0.2 score; candidates with a "
+        "negative counterparty delta were excluded before ranking."
+    )
+    criteria_note = (
+        "requires >=0.5 lineup PPG for Reeve and a contribution from every asset; "
+        "a negative counterparty delta is shown, not screened out"
+        if mode == "ours" else
+        "requires >=0.5 lineup PPG for Reeve, no projected counterparty loss, "
+        "and a contribution from every asset"
+    )
     return {
         "decision_type": "trade_discovery", "status": "research_shortlist_only",
+        "mode": mode,
         "actionable_trades": [], "shortlist": finalists,
         "coverage": {"managers": len(others), "players_per_roster_limit": 8, "evaluated": checked, "candidate_budget": len(candidates), "exhaustive": False},
-        "excluded": {"incomplete_projection_math": incomplete, "insufficient_gain_or_counterparty_loss": negative, "forced_drop_or_noncontributing_padding": padding},
+        "excluded": {"incomplete_projection_math": incomplete, negative_label: negative, "forced_drop_or_noncontributing_padding": padding},
         "source_freshness": a.evidence_freshness(snapshot),
         "warnings": [
-            "No offer is validated by this screen. Check current role/news and independent forecasts, then the exact stable current-year PPR Redraft Flock Fair Trade! verdict.",
-            "Fast search is bounded, uses up to two players per side, requires >=0.5 lineup PPG for Reeve, no projected counterparty loss, and a contribution from every asset. It can miss useful deals.",
+            "No offer is validated by this screen. Check current role/news and independent forecasts, then the exact stable current-year PPR Redraft Flock Fair Trade! verdict -- Flock, not the counterparty delta shown here, is the acceptance reference.",
+            f"Fast search is bounded, uses up to two players per side, {criteria_note}. It can miss useful deals.",
+            sort_note,
             "An empty shortlist means this screen found no candidate; it does not prove no good trade exists.",
         ],
     }
