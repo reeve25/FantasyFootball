@@ -6,7 +6,7 @@ whole files only when the task truly spans them.
 | Task area | Start with | Focused tests |
 |---|---|---|
 | Public CLI, timeouts, compact packets, run artifacts | `ff.py`: `parser`, `worker`, `compact`, `main` | `tests/test_entrypoint.py`, `advisor_runtime/tests/test_entrypoint.py` |
-| Packet shape, intent, lineup, trade math | `advisor_runtime/advisor.py`: `classify_intent`, `build_packet`, `optimize_lineup`, `evaluate_trade`, `select_projection_source` | `advisor_runtime/tests/test_advisor_v2.py`, `tests/test_evidence_integrity.py` |
+| Packet shape, intent, lineup, trade math | `advisor_runtime/advisor.py`: `classify_intent`, `resolve_trade_from_question`, `build_packet`, `optimize_lineup`, `evaluate_trade`, `select_projection_source` | `advisor_runtime/tests/test_advisor_v2.py`, `tests/test_evidence_integrity.py` |
 | Live Sleeper league data and short cache | `advisor_runtime/sleeper_live.py`: `_get_json`, `fetch_live_context` | `tests/test_live_requests.py` |
 | Sportsbook providers and market-history writes | `advisor_runtime/market_sources.py`: `sports_game_odds`, `_write_sports_game_odds_snapshot`, `focused_market_packet`, `fetch_event_status` | `advisor_runtime/tests/test_market_sources.py`, `test_market_history.py` |
 | Market conversion | `advisor_runtime/market_anchor.py`: `convert_snapshot`, `touchdown_distribution` | `advisor_runtime/tests/test_market_anchor.py` |

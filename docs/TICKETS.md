@@ -205,7 +205,21 @@ held at 1.5 across every book in both snapshots, leaves a curated related
 2026-09-15 T6 entry and `advisor_runtime/tests/test_delta_table.py` (17 new
 tests) for full detail.
 
-## T7 — Conversational routing
+## T7 — Conversational routing  [complete 2026-09-15]
+Implemented 2026-09-15:
+`advisor_runtime/advisor.py:classify_intent` extended to match literal "X for Y"
+trade phrasing using existing `match_players` name-matching; new
+`resolve_trade_from_question` parses conversational direction cues or
+perspective roster ownership and validates through `resolve_explicit_trade`;
+`ff.py packet` wired through `resolve_trade_from_question` and allows
+`--projection-source` selection; `--market/--deep` remain strictly opt-in;
+`evaluate_trade` output adds `min_ppg_shift_to_flip` sensitivity field;
+`build_packet` provides honest empty `assumption_list: []` and structured
+`decision_report` matching the report template; full offline suite passes (194
+runtime + 34 entrypoint tests); acceptance check `python ff.py packet "Kenneth
+Walker for Drake London?" --offline` PASS with real non-empty explicit trade
+decision math.
+
 Parse "Kenneth Walker for Drake London?" -> identify operation, trigger
 targeted evidence refresh (stale-projection logic already exists as
 `evidence_freshness()` and `CONFIG["snapshot_ttl_minutes"]` in

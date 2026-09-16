@@ -82,16 +82,6 @@ def parser():
         q.add_argument("--market", action="store_true", help="Add focused current sportsbook evidence")
         if command in {"packet", "trade"}:
             q.add_argument("--market-refresh", action="store_true", help="Fetch SportsGameOdds now, bypassing its 10-minute cache; implies --market")
-        q.add_argument("--deep", action="store_true", help="Also use configured metered odds check")
-        if command == "packet":
-            q.add_argument("question", nargs="+")
-        if command == "trade":
-            q.add_argument("--give", action="append", required=True)
-            q.add_argument("--get", action="append", required=True)
-            q.add_argument("--manager")
-            q.add_argument("--for-manager")
-            q.add_argument("--for-roster-id", type=int)
-            q.add_argument("--effective-week", type=int)
             q.add_argument(
                 "--projection-source",
                 choices=["sleeper", "espn", "market_anchor", "blend"],
@@ -103,6 +93,16 @@ def parser():
                     "this flag leaves existing behavior unchanged."
                 ),
             )
+        q.add_argument("--deep", action="store_true", help="Also use configured metered odds check")
+        if command == "packet":
+            q.add_argument("question", nargs="+")
+        if command == "trade":
+            q.add_argument("--give", action="append", required=True)
+            q.add_argument("--get", action="append", required=True)
+            q.add_argument("--manager")
+            q.add_argument("--for-manager")
+            q.add_argument("--for-roster-id", type=int)
+            q.add_argument("--effective-week", type=int)
         if command == "discover":
             q.add_argument("--manager")
             q.add_argument(
@@ -233,8 +233,15 @@ def worker(args):
         if args.effective_week is not None:
             terms["effective_week"] = args.effective_week
         question = f"Evaluate giving {' + '.join(terms['give'])} for {' + '.join(terms['get'])}"
+    elif args.command == "packet":
+        question = " ".join(args.question)
+        if a.classify_intent(question, current) == "explicit_trade":
+            try:
+                terms = a.resolve_trade_from_question(current, question)
+            except Exception as exc:
+                current.setdefault("runtime_warnings", []).append(f"Explicit trade resolution note: {exc}")
     else:
-        question = " ".join(args.question) if args.command == "packet" else {
+        question = {
             "lineup": "Show my exact submitted lineup and projected total",
             "rankings": "Rank every team in the league",
             "movers": "Show the biggest projection risers and fallers",
@@ -245,7 +252,7 @@ def worker(args):
     market_anchor_diagnostics = None
     market_anchor_attribution = None
     market_anchor_blend_provenance = None
-    if args.command == "trade" and projection_source in ("market_anchor", "blend"):
+    if terms and projection_source in ("market_anchor", "blend"):
         # T4: fetch fresh lines for only the traded players and compute the
         # T2 anchor + T3 blend, injected additively into
         # weekly_points_by_source. Never touches players["weekly_points"]
@@ -344,6 +351,8 @@ def worker(args):
         current = a.select_projection_source(current, projection_source)
     packet = a.build_packet(question, current, explicit_trade=terms, live_context=live, include_market=False)
     packet["market_status"] = "not_requested; use --market when it can change this decision"
+    if packet.get("decision_report"):
+        packet["decision_report"]["market_anchor"] = packet["market_status"]
     if projection_source or market_anchor_diagnostics is not None:
         packet["projection_source_requested"] = getattr(args, "projection_source", None)
         packet["projection_source_applied"] = projection_source
@@ -372,12 +381,16 @@ def worker(args):
             packet["market_evidence"] = market
             packet.setdefault("warnings", [])[:0] = market.get("coverage_warnings") or []
             packet["market_status"] = "checked; inspect source coverage and timestamps"
+            if packet.get("decision_report"):
+                packet["decision_report"]["market_anchor"] = packet["market_status"]
         else:
             packet["market_status"] = (
                 f"requested but skipped: no player named in the {args.command!r} "
                 "question for --market/--deep to focus on; use packet or trade "
                 "with named players for market evidence"
             )
+            if packet.get("decision_report"):
+                packet["decision_report"]["market_anchor"] = packet["market_status"]
         save(packet)
 
 

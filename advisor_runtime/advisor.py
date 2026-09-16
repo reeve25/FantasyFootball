@@ -776,7 +776,7 @@ def match_players(
     return [player for _, player in ordered[:limit]]
 
 
-def classify_intent(question: str) -> str:
+def classify_intent(question: str, snapshot: dict[str, Any] | None = None) -> str:
     text = normalize_text(question)
     if any(
         phrase in text
@@ -849,6 +849,22 @@ def classify_intent(question: str) -> str:
         )
     ):
         return "explicit_trade"
+    if " for " in f" {text} ":
+        snap = snapshot
+        if snap is None:
+            try:
+                snap = load_snapshot()
+            except Exception:
+                snap = None
+        if snap:
+            for m in re.finditer(r"\s+for\s+", question, re.IGNORECASE):
+                left_players = match_players(question[:m.start()], snap)
+                right_players = match_players(question[m.end():], snap)
+                if left_players and right_players:
+                    left_ids = {p.get("pid") or p.get("name") for p in left_players}
+                    right_ids = {p.get("pid") or p.get("name") for p in right_players}
+                    if left_ids.isdisjoint(right_ids):
+                        return "explicit_trade"
     if any(
         phrase in text
         for phrase in (
@@ -1324,6 +1340,54 @@ def resolve_explicit_trade(
     }
 
 
+def resolve_trade_from_question(
+    snapshot: dict[str, Any],
+    question: str,
+    perspective_rid: int | None = None,
+) -> dict[str, Any] | None:
+    """Parse conversational trade phrasing into structured terms via resolve_explicit_trade."""
+    if perspective_rid is None:
+        perspective_rid = MY_ROSTER_ID
+    for m in re.finditer(r"\s+for\s+", question, re.IGNORECASE):
+        left_text = question[:m.start()]
+        right_text = question[m.end():]
+        lp = match_players(left_text, snapshot)
+        rp = match_players(right_text, snapshot)
+        if not lp or not rp:
+            continue
+        l_ids = {p.get("pid") or p.get("name") for p in lp}
+        r_ids = {p.get("pid") or p.get("name") for p in rp}
+        if not l_ids.isdisjoint(r_ids):
+            continue
+
+        left_norm = normalize_text(left_text)
+        right_norm = normalize_text(right_text)
+        left_has_give = any(w in left_norm.split() for w in ("give", "send"))
+        left_has_get = any(w in left_norm.split() for w in ("get", "receive"))
+        right_has_give = any(w in right_norm.split() for w in ("give", "send"))
+        right_has_get = any(w in right_norm.split() for w in ("get", "receive"))
+
+        if left_has_give or right_has_get:
+            give, get = lp, rp
+        elif left_has_get or right_has_give:
+            give, get = rp, lp
+        else:
+            left_mine = all(int(p.get("owner_roster_id") or -1) == perspective_rid for p in lp)
+            right_mine = all(int(p.get("owner_roster_id") or -1) == perspective_rid for p in rp)
+            if right_mine and not left_mine:
+                give, get = rp, lp
+            else:
+                give, get = lp, rp
+
+        return resolve_explicit_trade(
+            snapshot,
+            [p["name"] for p in give],
+            [p["name"] for p in get],
+            perspective_roster_id=perspective_rid,
+        )
+    return None
+
+
 def _roster_average(
     player_ids: list[str],
     snapshot: dict[str, Any],
@@ -1633,6 +1697,8 @@ def evaluate_trade(
     else:
         mine_playoff_before = mine_playoff_after = None
     players = snapshot.get("players") or {}
+    persp_delta = delta(mine_after_value, mine_before)
+    min_shift = round(abs(persp_delta), 4) if persp_delta is not None else None
     result = {
         "basis": (
             "mean of each week's best legal skill-position lineup; "
@@ -1653,7 +1719,9 @@ def evaluate_trade(
         "counterparty_manager": other.get("manager"),
         "perspective_before_pg": mine_before,
         "perspective_after_pg": mine_after_value,
-        "perspective_delta_pg": delta(mine_after_value, mine_before),
+        "perspective_delta_pg": persp_delta,
+        "min_ppg_shift_to_flip": min_shift,
+        "min_ppg_shift_to_flip_decision": min_shift,
         "counterparty_before_pg": other_before,
         "counterparty_after_pg": other_after_value,
         "counterparty_delta_pg": delta(other_after_value, other_before),
@@ -2031,7 +2099,7 @@ def build_packet(
     intent = (
         "explicit_trade"
         if explicit_trade
-        else classify_intent(question)
+        else classify_intent(question, current)
     )
     focus = match_players(question, current)
     warnings = list(current.get("runtime_warnings") or [])
@@ -2074,6 +2142,8 @@ def build_packet(
             _compact_player(player, week) for player in focus
         ],
         "exact_engine_decision_math": None,
+        "assumption_list": [],
+        "assumptions": [],
         "warnings": warnings,
         "research_contract": {
             "news": (
@@ -2146,6 +2216,20 @@ def build_packet(
                 current, explicit_trade
             )
             packet["exact_engine_decision_math"] = trade_math
+            shift = trade_math.get("min_ppg_shift_to_flip")
+            packet["min_ppg_shift_to_flip"] = shift
+            packet["decision_report"] = {
+                "market_anchor": packet.get("market_status") or "not_requested; use --market when it can change this decision",
+                "assumptions": packet.get("assumption_list", []),
+                "weekly_ppg_impact": trade_math.get("perspective_delta_pg"),
+                "playoff_ppg_impact": trade_math.get("perspective_playoff_delta_pg"),
+                "min_ppg_shift_to_flip": shift,
+                "threshold_summary": (
+                    f"A net projection swing of {shift:+.2f} PPG flips this decision."
+                    if shift is not None
+                    else "Unknown sensitivity due to incomplete projections."
+                ),
+            }
             decisive_fields = (
                 "perspective_before_pg",
                 "perspective_after_pg",

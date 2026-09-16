@@ -215,5 +215,43 @@ class EntrypointIntegrationTests(unittest.TestCase):
             self.assertTrue(fetch.call_args.kwargs["include_transactions"])
 
 
+    def test_packet_conversational_trade_resolves_terms_and_decision_report(self):
+        from advisor_runtime import advisor as a
+        give_player = {"pid": "p1", "name": "Drake London", "pos": "WR", "owner_roster_id": 9}
+        get_player = {"pid": "p2", "name": "Kenneth Walker", "pos": "RB", "owner_roster_id": 1}
+        snapshot = {
+            "players": {"p1": give_player, "p2": get_player},
+            "rosters": [
+                {"roster_id": 9, "manager": "Reeve", "player_ids": ["p1"]},
+                {"roster_id": 1, "manager": "Other", "player_ids": ["p2"]},
+            ],
+            "league": {"starter_slots": ["WR", "RB"], "current_week": 1},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "evidence.json"
+            fake_trade_math = {
+                "perspective_delta_pg": 0.75,
+                "perspective_playoff_delta_pg": -0.1,
+                "min_ppg_shift_to_flip": 0.75,
+                "counterparty_delta_pg": -2.0,
+            }
+            with (
+                mock.patch.dict(os.environ, {"FF_CHECKPOINT": str(checkpoint)}),
+                mock.patch.object(a, "load_snapshot", return_value=snapshot),
+                mock.patch.object(a, "_sync_live", return_value=snapshot),
+                mock.patch.object(a, "focused_expert_packet"),
+                mock.patch.dict(a.CONFIG),
+                mock.patch.object(a, "evaluate_trade", return_value=fake_trade_math),
+            ):
+                ff.worker(ff.parser().parse_args(["packet", "Kenneth Walker for Drake London?", "--offline"]))
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            self.assertEqual(saved["decision_type"], "explicit_trade")
+            self.assertEqual(saved["min_ppg_shift_to_flip"], 0.75)
+            self.assertEqual(saved["assumption_list"], [])
+            self.assertIn("decision_report", saved)
+            self.assertEqual(saved["decision_report"]["min_ppg_shift_to_flip"], 0.75)
+            self.assertEqual(saved["decision_report"]["weekly_ppg_impact"], 0.75)
+
+
 if __name__ == "__main__":
     unittest.main()
