@@ -53,7 +53,7 @@ BLEND_KEY = "market_anchor_blend"
 # this linear converter cannot model (market_anchor.py: "Nonlinear bonuses
 # and position-dependent scoring need a separate adapter").
 REQUIRED_STATS_BY_POSITION = {
-    "QB": ["pass_yd", "pass_td"],
+    "QB": ["pass_yd", "pass_td", "rush_yd"],
     "RB": ["rush_yd", "rec_yd"],
     "WR": ["rec_yd"],
     "TE": ["rec_yd"],
