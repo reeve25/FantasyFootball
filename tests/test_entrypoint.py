@@ -15,6 +15,50 @@ spec.loader.exec_module(ff)
 
 
 class EntrypointIntegrationTests(unittest.TestCase):
+    def test_backtest_require_scored_is_a_non_vacuous_acceptance_gate(self):
+        from advisor_runtime import advisor as a
+        from advisor_runtime import backtest
+        from advisor_runtime import sleeper_live
+
+        cases = (
+            ({"status": "no_eligible_weeks", "player_weeks_scored": 0}, 3, False),
+            ({"status": "scored", "player_weeks_scored": 1}, 0, True),
+        )
+        for result, expected_code, expected_passed in cases:
+            with self.subTest(status=result["status"]), tempfile.TemporaryDirectory() as directory:
+                checkpoint = Path(directory) / "evidence.json"
+                with (
+                    mock.patch.dict(os.environ, {"FF_CHECKPOINT": str(checkpoint)}),
+                    mock.patch.object(
+                        sleeper_live,
+                        "fetch_live_context",
+                        return_value={"season": "2026", "scoring_settings": {"rec": 1.0}},
+                    ),
+                    mock.patch.object(
+                        a,
+                        "ensure_snapshot",
+                        return_value={"players": {"p1": {"pid": "p1"}}},
+                    ),
+                    mock.patch.object(backtest, "run_backtest", return_value=dict(result)),
+                ):
+                    code = ff.worker(
+                        ff.parser().parse_args(["backtest", "--require-scored"])
+                    )
+
+                saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+                self.assertEqual(code, expected_code)
+                self.assertEqual(saved["acceptance"]["passed"], expected_passed)
+                self.assertEqual(
+                    saved["acceptance"]["requirement"],
+                    "status=scored and player_weeks_scored>0",
+                )
+
+        with mock.patch.object(ff, "worker", return_value=3):
+            self.assertEqual(
+                ff.main(["--_worker", "backtest", "--require-scored"]),
+                3,
+            )
+
     def test_market_refresh_implies_market_and_forwards_cache_bypass(self):
         from advisor_runtime import advisor as a
         from advisor_runtime import market_sources

@@ -60,12 +60,20 @@ def parser():
     sub.add_parser("selftest", help="Offline regression tests")
     refresh = sub.add_parser("refresh", help="Explicitly rebuild projection evidence")
     refresh.add_argument("--rebuild", action="store_true", help="Bypass upstream caches")
-    sub.add_parser(
+    backtest = sub.add_parser(
         "backtest",
         help=(
             "T5: score stored market-history snapshots against realized results "
             "(market_anchor / blend / sleeper), writing docs/backtest/*.json. "
             "Reports \"no_eligible_weeks\" honestly when nothing qualifies yet."
+        ),
+    )
+    backtest.add_argument(
+        "--require-scored",
+        action="store_true",
+        help=(
+            "Acceptance gate: exit nonzero unless the run is scored and "
+            "contains at least one player-week"
         ),
     )
     for command in ("packet", "trade", "lineup", "rankings", "movers", "transactions", "discover"):
@@ -152,7 +160,7 @@ def worker(args):
         try:
             live = fetch_live_context(a.LEAGUE_ID, a.MY_ROSTER_ID, {})
         except Exception as exc:
-            save({
+            result = {
                 "status": "live_league_unavailable",
                 "reason": type(exc).__name__,
                 "detail": (
@@ -160,14 +168,38 @@ def worker(args):
                     "settings; a saved snapshot never stores them. Refusing "
                     "to fall back to an empty/guessed value."
                 ),
-            })
-            return
+            }
+            if args.require_scored:
+                result["acceptance"] = {
+                    "passed": False,
+                    "requirement": "status=scored and player_weeks_scored>0",
+                }
+            save(result)
+            return 3 if args.require_scored else 0
         season = str(live.get("season") or "")
         scoring = live.get("scoring_settings") or {}
         snapshot = a.ensure_snapshot(quick=True)
         engine_players = list((snapshot.get("players") or {}).values())
-        save(b.run_backtest(engine_players=engine_players, scoring=scoring, season=season))
-        return
+        result = b.run_backtest(
+            engine_players=engine_players,
+            scoring=scoring,
+            season=season,
+        )
+        if args.require_scored:
+            scored_rows = result.get("player_weeks_scored")
+            passed = (
+                result.get("status") == "scored"
+                and isinstance(scored_rows, int)
+                and scored_rows > 0
+            )
+            result["acceptance"] = {
+                "passed": passed,
+                "requirement": "status=scored and player_weeks_scored>0",
+            }
+            save(result)
+            return 0 if passed else 3
+        save(result)
+        return 0
     try:
         snapshot = a.load_snapshot()
     except (FileNotFoundError, ValueError):
@@ -354,7 +386,7 @@ def main(argv=None):
         # Provider progress is diagnostic text, never mixed into JSON evidence.
         try:
             with contextlib.redirect_stdout(sys.stderr):
-                worker(args)
+                return worker(args) or 0
         except ValueError as exc:
             write_json(Path(os.environ["FF_CHECKPOINT"]), {"status": "request_error", "error": str(exc), "warnings": ["Correct the request before retrying; no decision was produced."]})
             return 1
