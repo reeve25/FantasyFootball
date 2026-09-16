@@ -1,0 +1,81 @@
+﻿{
+    "status":  "blocked",
+    "check":  "T2 settled-week three-player acceptance",
+    "cached_events":  18,
+    "settled_cached_events":  0,
+    "history":  [
+                    {
+                        "file":  "2026-09-11T190538.833260Z-f45d56a25b2b4f34917e8e950aa8964b.jsonl",
+                        "line_rows":  0,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-11T190900.839227Z-7b0fe28826eb457798b3cd1b1a4edc45.jsonl",
+                        "line_rows":  0,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-11T193215.341805Z-37c5c8c1d74f4fb0b65d76e0d6ca6618.jsonl",
+                        "line_rows":  7169,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+                                                 1
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-11T223859.635539Z-f8a8dc4a41674aa796502cb626c91e2b.jsonl",
+                        "line_rows":  7321,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+                                                 1
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-11T223909.970064Z-52b44316d8d14c189565c22db936e988.jsonl",
+                        "line_rows":  7321,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+                                                 1
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-11T224114.354915Z-50303dc25b7a4459ab535a7d9857a8da.jsonl",
+                        "line_rows":  7321,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+                                                 1
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-12T004315.555617Z-3182ab3a3df143dfbecd504935c59d13.jsonl",
+                        "line_rows":  7349,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+                                                 1
+                                             ],
+                        "settled_event_line_rows":  0
+                    },
+                    {
+                        "file":  "2026-09-12T010609.464978Z-6ffccd0d55424b2fabe531dd7220cbbe.jsonl",
+                        "line_rows":  7344,
+                        "named_line_rows":  0,
+                        "projection_weeks":  [
+                                                 1
+                                             ],
+                        "settled_event_line_rows":  0
+                    }
+                ],
+    "reason":  "No settled event lines identified through available provider metadata; no independent consensus-close FP or final-box-score reference fixture is present."
+}

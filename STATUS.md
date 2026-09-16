@@ -216,3 +216,34 @@ docs/FORECASTING.md transcribes the method as specified without resolving
 this. Per BRIEF.md's precedence: until this is decided, no session should
 present an assumption's confidence value to Reeve as a calibrated
 probability.
+
+## 2026-09-12 — T2a converter implemented; T2b empirical validation blocked
+
+Implemented advisor_runtime/market_anchor.py: paired-price de-vig, explicit
+yardage SD / Poisson count assumptions, existing provider-name alias joins,
+per-stat distributions, supplied linear league scoring, documented team-share
+fallback inputs, and null incomplete anchors. No evaluator changes or T3 work.
+Model/input limitations are recorded in docs/MARKET_ANCHOR.md.
+
+Actual regression run: `python ff.py selftest` passed 61 runtime + 31 other
+tests (92 total), including eight new converter tests. Windows sandbox could
+not launch installed Python; the approved local execution succeeded.
+
+The T2 acceptance prerequisite check was run in PowerShell over all eight
+history files and the provider cache; saved result: docs/T2_ACCEPTANCE.json.
+All 18 cached events were unsettled; zero stored line rows could be linked to
+a settled event through that metadata. New-format line rows also omit names.
+No independent consensus-close/final-box-score fixture was available locally.
+The required three-player numerical comparison therefore could not run and
+has NOT passed. Synthetic unit checks do not satisfy that acceptance.
+
+Split T2 into T2a (converter, complete) and T2b (real settled-week verification,
+pending), as required by the session rule. Changes committed for handoff;
+the pre-existing confidence-decision edit is preserved outside this commit.
+No external historical data was purchased or fetched.
+
+Exact next prompt: "Read the project docs. Work T2b only: obtain verified
+settled-week SGO closing lines with both prices, provider names/event weeks,
+and independent consensus-close plus final-box-score references for three
+players; run T2's approximately-one-FP acceptance, refine the converter if
+needed, update STATUS.md and commit. Do not start T3."
