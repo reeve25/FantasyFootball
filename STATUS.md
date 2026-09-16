@@ -22,15 +22,19 @@ not a session log. Use `git log` and focused component docs for history.
 - T2 through T7 and T9 are complete. T2b passed against real settled Week 1
   players; T6 added line/projection deltas and the anti-double-count guard;
   T7 conversational trade routing defects fixed (dynamically resolving third-party trades, removing prose from decision report, removing duplicate sensitivity key). T9 fixed discovery tie-break and contribution defects. QBs market_anchor projection vastly improved by including pass_td and rush_yd. T10 added conversational intents for surplus/buy-low/sell-high.
-- The full offline suite passes: 194 runtime tests plus 34 outer integration
-  tests (228 total). Real acceptance check `python ff.py packet "Kenneth Walker
-  for Drake London?" --offline` PASS.
+- The full offline suite passes: 196 runtime tests plus 35 outer integration
+  tests (231 total). Real acceptance check `python ff.py packet "Kenneth Walker
+  for Drake London?" --offline --flock` PASS with live Flock ranks, values,
+  suggestions, and exact `You win!` verdict evidence.
 
 ## Open development work
 
-- Richer conversational trade intents (buy-low, sell-high, surplus trade-away)
-  design proposal drafted at `docs/CONVERSATIONAL_INTENTS_DESIGN.md` (design-only;
-  no code implemented pending user approval).
+- Flock's public web API is now integrated behind `--flock` for explicit offers
+  and discovery finalists. The API is undocumented, so failures remain
+  fail-closed and the browser workflow remains a fallback audit.
+- Buy-low/sell-high routing exists, but structural usage data is still manual.
+  The next preferred free source is nflverse weekly player stats plus snap
+  counts; do not fit empirical weights until multiple scored weeks exist.
 - T8 risk-aware decisions remains intentionally deferred until several weeks of
   scored data exist.
 - No real curated assumption entries exist yet; current assumption tests use
