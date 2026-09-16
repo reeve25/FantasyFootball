@@ -206,6 +206,26 @@ def worker(args):
                     "(no T2b-validated per-player SD exists yet); see STATUS.md's "
                     "T2d Decision Log."
                 )
+            if not result["td_scoring_usable"]:
+                current.setdefault("runtime_warnings", []).append(
+                    "T2e: this league's rush_td/rec_td scoring coefficients don't "
+                    "match (or one is missing), so the anytime-TD market could not "
+                    "be fairly priced for any player this run; market_anchor/blend "
+                    "is yardage-only for everyone."
+                )
+            else:
+                yardage_only = sorted({
+                    current["players"][pid].get("name") or pid
+                    for pid, weeks in market_anchor_attribution.items()
+                    for entry in weeks.values()
+                    if "td" in entry.get("optional_missing", [])
+                })
+                if yardage_only:
+                    current.setdefault("runtime_warnings", []).append(
+                        "T2e: no anytime-TD market was posted this fetch for "
+                        f"{', '.join(yardage_only)}; their market_anchor/blend is "
+                        "yardage-only, not null and not fabricated."
+                    )
         else:
             current.setdefault("runtime_warnings", []).append(
                 f"market_anchor/blend requested but no fresh sportsbook snapshot was written "

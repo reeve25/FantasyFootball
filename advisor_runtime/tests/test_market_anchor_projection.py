@@ -1,12 +1,15 @@
 import math
 import unittest
 
+from advisor_runtime.market_anchor import touchdown_distribution
 from advisor_runtime.market_anchor_projection import (
     REQUIRED_STATS_BY_POSITION,
     build_identity_inputs,
     compute_projection_sources,
     inject_projection_sources,
+    optional_stats_for,
     required_stats_for,
+    resolve_touchdown_scoring,
 )
 
 
@@ -64,6 +67,46 @@ class RequiredStatsForTests(unittest.TestCase):
         self.assertIn("rush_yd", stats["1"])
 
 
+class ResolveTouchdownScoringTests(unittest.TestCase):
+    def test_usable_when_rush_and_rec_td_agree(self):
+        resolved, usable = resolve_touchdown_scoring({"rush_td": 6.0, "rec_td": 6.0})
+        self.assertTrue(usable)
+        self.assertEqual(resolved["td"], 6.0)
+
+    def test_unusable_when_they_disagree(self):
+        resolved, usable = resolve_touchdown_scoring({"rush_td": 6.0, "rec_td": 5.0})
+        self.assertFalse(usable)
+        self.assertNotIn("td", resolved)
+
+    def test_unusable_when_either_is_absent(self):
+        for scoring in ({"rec_td": 6.0}, {"rush_td": 6.0}, {}):
+            with self.subTest(scoring=scoring):
+                _, usable = resolve_touchdown_scoring(scoring)
+                self.assertFalse(usable)
+
+    def test_never_mutates_the_input(self):
+        original = {"rush_td": 6.0, "rec_td": 6.0}
+        copy_before = dict(original)
+        resolve_touchdown_scoring(original)
+        self.assertEqual(original, copy_before)
+
+
+class OptionalStatsForTests(unittest.TestCase):
+    def test_every_supported_position_gets_td_when_usable(self):
+        players = [{"pid": "1", "pos": "QB"}, {"pid": "2", "pos": "RB"},
+                   {"pid": "3", "pos": "WR"}, {"pid": "4", "pos": "TE"}]
+        stats = optional_stats_for(players, td_usable=True)
+        self.assertEqual(stats, {"1": ["td"], "2": ["td"], "3": ["td"], "4": ["td"]})
+
+    def test_empty_when_not_usable(self):
+        players = [{"pid": "1", "pos": "QB"}]
+        self.assertEqual(optional_stats_for(players, td_usable=False), {})
+
+    def test_excludes_unsupported_positions(self):
+        players = [{"pid": "1", "pos": "K"}]
+        self.assertEqual(optional_stats_for(players, td_usable=True), {})
+
+
 def te_rows():
     """rec_yd alone covers TE's (T2d-narrowed) full required-stats list."""
     return [
@@ -72,10 +115,20 @@ def te_rows():
     ]
 
 
+def td_row(line=1.5, price=750, player_id="SGO1", event_id="e1"):
+    return dict(
+        row_type="line", event_id=event_id, player_id=player_id, book="b",
+        market="td", line=line, price=price, side="over",
+        fetched_at_utc="2026-09-01T00:00:00Z", player_name="Cam Ward",
+        event_metadata={"season_week": "Week 3"},
+    )
+
+
 TE_SCORING = {"rec_yd": .1}
 TE_SD = {("12522", 3, "rec_yd"): 30}
 # 74.5 yards at -110/-110: no-vig mean is exactly the line.
 TE_EXPECTED_ANCHOR = 74.5 * .1
+TE_SCORING_WITH_TD = {"rec_yd": .1, "rush_td": 6.0, "rec_td": 6.0}
 
 
 class ComputeProjectionSourcesTests(unittest.TestCase):
@@ -158,6 +211,52 @@ class ComputeProjectionSourcesTests(unittest.TestCase):
         anchor = result["sources"]["12522"]["market_anchor"]["3"]
         blend = result["sources"]["12522"]["market_anchor_blend"]["3"]
         self.assertGreater(blend, anchor)
+
+    def test_t2e_td_present_adds_a_nonzero_component_and_marks_complete(self):
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        result = compute_projection_sources(
+            te_rows() + [td_row()], players=players, scoring=TE_SCORING_WITH_TD, yardage_sd=TE_SD,
+        )
+        anchor = result["sources"]["12522"]["market_anchor"]["3"]
+        expected_td_fp = touchdown_distribution(1.5, 750)["mean"] * 6.0
+        self.assertAlmostEqual(anchor, TE_EXPECTED_ANCHOR + expected_td_fp)
+        entry = result["attribution"]["12522"]["3"]
+        self.assertEqual(entry["confidence"], "conditional_market")
+        self.assertEqual(entry["optional_missing"], [])
+        self.assertTrue(result["td_scoring_usable"])
+
+    def test_t2e_td_absent_degrades_to_yardage_only_not_null(self):
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        result = compute_projection_sources(
+            te_rows(), players=players, scoring=TE_SCORING_WITH_TD, yardage_sd=TE_SD,
+        )
+        anchor = result["sources"]["12522"]["market_anchor"]["3"]
+        self.assertAlmostEqual(anchor, TE_EXPECTED_ANCHOR)
+        entry = result["attribution"]["12522"]["3"]
+        self.assertEqual(entry["confidence"], "yardage_only")
+        self.assertEqual(entry["optional_missing"], ["td"])
+        self.assertTrue(result["td_scoring_usable"])
+
+    def test_t2e_mismatched_league_td_scoring_never_attempts_td(self):
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        mismatched = {"rec_yd": .1, "rush_td": 6.0, "rec_td": 5.0}
+        result = compute_projection_sources(
+            te_rows() + [td_row()], players=players, scoring=mismatched, yardage_sd=TE_SD,
+        )
+        anchor = result["sources"]["12522"]["market_anchor"]["3"]
+        self.assertAlmostEqual(anchor, TE_EXPECTED_ANCHOR)  # td row present but never priced
+        self.assertFalse(result["td_scoring_usable"])
+        self.assertEqual(result["attribution"]["12522"]["3"]["optional_missing"], [])
+
+    def test_t2e_td_never_falls_back_and_default_behavior_unchanged(self):
+        # No rush_td/rec_td at all in scoring (T2d-era caller): td_scoring_usable
+        # is False and behavior is byte-for-byte the pre-T2e result.
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        result = compute_projection_sources(
+            te_rows() + [td_row()], players=players, scoring=TE_SCORING, yardage_sd=TE_SD,
+        )
+        self.assertAlmostEqual(result["sources"]["12522"]["market_anchor"]["3"], TE_EXPECTED_ANCHOR)
+        self.assertFalse(result["td_scoring_usable"])
 
 
 class InjectProjectionSourcesTests(unittest.TestCase):

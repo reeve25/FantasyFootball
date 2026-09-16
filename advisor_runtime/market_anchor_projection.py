@@ -19,39 +19,81 @@ from typing import Any
 from advisor_runtime import assumptions as assumptions_module
 from advisor_runtime.market_anchor import convert_snapshot, default_yardage_sd
 
+TOUCHDOWN_STAT = "td"
+
 MARKET_ANCHOR_KEY = "market_anchor"
 BLEND_KEY = "market_anchor_blend"
 
 # T2d: deliberately narrowed to each position's core, reliably-posted
-# yardage stat(s) only -- the exact scope of this ticket ("source the
+# yardage stat(s) only -- the exact scope of that ticket ("source the
 # missing rec_yd / rush_yd SD"), not a full scoring replica. This is
 # narrower than T4's original attempt, which required pass_td/pass_int/
 # rush_td/rec_td/rec/WR-rush_yd/QB-rush_yd too and was null for every real
-# player for TWO compounding reasons, only one of which is this ticket's
-# scope:
-#   1. (this ticket) rec_yd/rush_yd had no SD source at all -- fixed above.
-#   2. (a separate, real bug, NOT fixed here) "rec_td"/"rush_td" can never
-#      be satisfied: SportsGameOdds only ever posts an aggregate anytime-TD
-#      market ("touchdowns" -> stat key "td" in market_sources.
-#      SPORTS_GAME_ODDS_STATS), never split by rushing vs. receiving. Every
-#      required_stats list that named "rec_td"/"rush_td" was structurally
-#      unfulfillable regardless of SD. Secondary stats (WR rush_yd, RB
-#      rec_yd's reliability, QB rush_yd, reception counts) also have
-#      inconsistent real coverage. Left for a follow-up ticket -- see
-#      STATUS.md's T2d Decision Log and next-prompt.
-# anchor_fp is therefore a yardage-only partial-scoring approximation by
+# player for TWO compounding reasons, only one of which was T2d's scope:
+#   1. (T2d) rec_yd/rush_yd had no SD source at all -- fixed.
+#   2. "rec_td"/"rush_td" can never be satisfied as REQUIRED stats:
+#      SportsGameOdds only ever posts an aggregate anytime-TD market
+#      ("touchdowns" -> stat key "td" in market_sources.
+#      SPORTS_GAME_ODDS_STATS), never split by rushing vs. receiving. T2e
+#      (this ticket) adds "td" back as an OPTIONAL stat instead -- see
+#      resolve_touchdown_scoring/optional_stats_for below -- so it
+#      contributes when the market has it without being required. Reception
+#      counts (rec) and WR/QB secondary rushing volume remain out of scope,
+#      left for a follow-up ticket -- see STATUS.md's T2e Decision Log and
+#      next-prompt.
+# anchor_fp is therefore a yardage+TD partial-scoring approximation by
 # construction (see docs/MARKET_ANCHOR.md), not a full replica of league
-# scoring. K is excluded outright -- Sleeper kicking uses nonlinear
-# per-distance field-goal buckets with no single linear "kick_pts"
-# coefficient, which this linear converter cannot model (market_anchor.py:
-# "Nonlinear bonuses and position-dependent scoring need a separate
-# adapter").
+# scoring (still missing receptions, fumbles, two-point conversions).
+# K is excluded outright -- Sleeper kicking uses nonlinear per-distance
+# field-goal buckets with no single linear "kick_pts" coefficient, which
+# this linear converter cannot model (market_anchor.py: "Nonlinear bonuses
+# and position-dependent scoring need a separate adapter").
 REQUIRED_STATS_BY_POSITION = {
     "QB": ["pass_yd"],
     "RB": ["rush_yd", "rec_yd"],
     "WR": ["rec_yd"],
     "TE": ["rec_yd"],
 }
+# T2e: every supported position can score an anytime touchdown (a QB mostly
+# via rushing, since QBs essentially never receive); "td" is therefore
+# offered as optional to all four, gated only by whether the league's own
+# scoring makes it fairly priceable (see resolve_touchdown_scoring).
+OPTIONAL_STATS_BY_POSITION = {pos: [TOUCHDOWN_STAT] for pos in REQUIRED_STATS_BY_POSITION}
+
+
+def resolve_touchdown_scoring(scoring: dict[str, float]) -> tuple[dict[str, float], bool]:
+    """(scoring-with-"td"-key-if-usable, td_usable). Never mutates the input.
+
+    T2e. SportsGameOdds's "touchdowns" market is a single anytime-TD
+    (rushing OR receiving, never passing) market with no per-position split
+    -- see market_anchor.py's convert_snapshot docstring. It is only fairly
+    priceable when the league's own rush_td and rec_td coefficients agree
+    (this league: both 6.0): using a mismatched aggregate coefficient would
+    misrepresent value, so when they differ (or either is absent) the TD
+    component degrades to unavailable rather than guessing which one to use
+    -- the ticket's "do not fabricate" rule applied to the scoring weight,
+    not just the market-implied value. Weights always come from the
+    caller's real scoring config; nothing here is hardcoded.
+    """
+    rush = scoring.get("rush_td")
+    rec = scoring.get("rec_td")
+    if rush is None or rush != rec:
+        return dict(scoring), False
+    resolved = dict(scoring)
+    resolved[TOUCHDOWN_STAT] = rush
+    return resolved, True
+
+
+def optional_stats_for(
+    players: list[dict[str, Any]], td_usable: bool
+) -> dict[str, list[str]]:
+    if not td_usable:
+        return {}
+    return {
+        str(player["pid"]): list(OPTIONAL_STATS_BY_POSITION[player["pos"]])
+        for player in players
+        if player.get("pos") in OPTIONAL_STATS_BY_POSITION
+    }
 
 
 def _parse_season_week(value: Any) -> int | None:
@@ -141,10 +183,20 @@ def compute_projection_sources(
     exists or is invented here. assumption_registry defaults empty: with no
     curated assumptions, the "blend" is just the anchor, which is the
     correct, honest result of T3's apply() given nothing to blend with.
+
+    T2e: the anytime-TD market ("td") is always passed to convert_snapshot as
+    OPTIONAL, never required -- see resolve_touchdown_scoring and
+    optional_stats_for. When the market isn't posted for a player-week (or
+    the league's rush_td/rec_td coefficients don't agree closely enough to
+    price it fairly at all), the anchor degrades to yardage-only rather than
+    going null; `attribution[pid][week]["confidence"]`/`"optional_missing"`
+    and the top-level `td_scoring_usable` report exactly which case applied.
     """
     players = [p for p in players if p.get("pos") in REQUIRED_STATS_BY_POSITION]
     provider_names, event_weeks = build_identity_inputs(line_rows)
     required_stats = required_stats_for(players)
+    resolved_scoring, td_usable = resolve_touchdown_scoring(scoring)
+    optional_stats = optional_stats_for(players, td_usable)
     default_sd = build_default_yardage_sd(players) if use_default_yardage_sd else {}
     explicit_sd = yardage_sd or {}
     resolved_sd = {**default_sd, **explicit_sd}
@@ -160,10 +212,11 @@ def compute_projection_sources(
         provider_names=provider_names,
         event_weeks=event_weeks,
         players=players,
-        scoring=scoring,
+        scoring=resolved_scoring,
         required_stats=required_stats,
         yardage_sd=resolved_sd,
         fallbacks=fallbacks or {},
+        optional_stats=optional_stats,
     )
     registry = assumption_registry or []
     sources: dict[str, dict[str, dict[str, float]]] = {}
@@ -177,7 +230,7 @@ def compute_projection_sources(
             registry,
             player=pid,
             week=week,
-            scoring=scoring,
+            scoring=resolved_scoring,
             priced_in_guard=priced_in_guard,
         )
         if blended["adjusted_fp"] is not None:
@@ -194,12 +247,24 @@ def compute_projection_sources(
                 stat for stat in anchor_row["implied_stats"]
                 if (pid, week, stat) in provisional_sd_keys
             ),
+            # T2e: "confidence" is "yardage_only" when the anytime-TD market
+            # wasn't posted for this player-week (or wasn't fairly
+            # priceable at all -- see td_usable below), "conditional_market"
+            # when it was and contributed. "incomplete"/"fallback" from a
+            # required-stat gap always take priority (set by convert_snapshot).
+            "confidence": anchor_row["confidence"],
+            "optional_missing": anchor_row["optional_missing"],
         }
     return {
         "sources": sources,
         "diagnostics": converted["diagnostics"],
         "attribution": attribution,
         "provisional_sd_stats": sorted({key[2] for key in provisional_sd_keys}),
+        # T2e: whether the league's own rush_td/rec_td coefficients agreed
+        # closely enough to price the anytime-TD market at all this run --
+        # see resolve_touchdown_scoring. False means every anchor this run
+        # is yardage-only regardless of market coverage, not a per-player gap.
+        "td_scoring_usable": td_usable,
     }
 
 

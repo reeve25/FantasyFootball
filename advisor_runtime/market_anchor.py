@@ -93,6 +93,23 @@ def implied_probability(price):
     return -price / (100 - price) if price < 0 else 100 / (100 + price)
 
 
+def _poisson_mean_for_threshold(line, probability):
+    """Solve P(Poisson(mu) > floor(line)) = probability for mu.
+
+    General half-integer threshold, not just 0.5: at 0.5 this reduces to the
+    closed form mu = -ln(1 - probability), but real posted touchdown
+    thresholds are not always 0.5 (see touchdown_distribution below), so the
+    general root-find is used everywhere rather than assuming the closed
+    form applies.
+    """
+    if line % 1 != 0.5:
+        raise ValueError("Count markets require a half-integer threshold")
+    upper = max(10., line * 2)
+    while poisson.sf(math.floor(line), upper) < probability:
+        upper *= 2
+    return brentq(lambda mu: poisson.sf(math.floor(line), mu) - probability, 0., upper)
+
+
 def stat_distribution(line, over_price, under_price, *, sd=None):
     """Normal location with caller-supplied SD, or Poisson count model.
 
@@ -113,19 +130,50 @@ def stat_distribution(line, over_price, under_price, *, sd=None):
             raise ValueError("Normal approximation implies negative production")
         return {"mean": mean, "variance": sd * sd,
                 "model": "normal_approximation", "p_over": probability}
-    if line % 1 != 0.5:
-        raise ValueError("Count markets require a half-integer threshold")
-    upper = max(10., line * 2)
-    while poisson.sf(math.floor(line), upper) < probability:
-        upper *= 2
-    mean = brentq(lambda mu: poisson.sf(math.floor(line), mu) - probability,
-                  0., upper)
+    mean = _poisson_mean_for_threshold(line, probability)
     return {"mean": mean, "variance": mean, "model": "poisson",
             "p_over": probability}
 
 
+def touchdown_distribution(line, price):
+    """Expected touchdowns (Poisson mean) from a one-sided anytime-TD price.
+
+    T2e. Verified against the raw SGO payload: the "touchdowns" market's
+    paired opposing (under) oddID exists structurally but its byBookmaker is
+    always empty -- no book posts a genuine two-sided price for this market.
+    There is therefore no partner price to de-vig against; the single posted
+    price's implied_probability is used as-is. This is a stated
+    simplification, not a claim of a vig-free probability: American-odds
+    vig on a longshot "yes" price typically shades the payout worse than
+    fair, which inflates the raw implied probability above the true one, so
+    this expected-TD estimate has a small, systematic, undocumented-size
+    upward bias. No correction is invented for it without a second price.
+
+    Assumes touchdown scoring is a Poisson process for one player-game
+    (independent scoring opportunities) -- the same model stat_distribution
+    already uses for two-sided count markets (receptions, etc.), reusing the
+    identical threshold-solving here for consistency.
+
+    The ticket's suggested closed form (lambda = -ln(1 - P)) is exactly the
+    line = 0.5 ("anytime", 1+ TDs) case; it does NOT generally apply.
+    Observed live data (2026-09-12) posts line = 1.5 (2+ TDs) for every
+    player checked, not 0.5, so the general half-integer solve
+    (_poisson_mean_for_threshold) is used instead of hardcoding the closed
+    form -- using -ln(1-P) against a 1.5 line would understate expected TDs
+    by roughly half for a typical everyday-usage skill player. See
+    STATUS.md's T2e Decision Log.
+    """
+    line = number(line)
+    if line < 0 or line.is_integer():
+        raise ValueError("Require a nonnegative noninteger threshold (no pushes)")
+    probability = implied_probability(price)
+    mean = _poisson_mean_for_threshold(line, probability)
+    return {"mean": mean, "variance": mean, "model": "poisson_one_sided",
+            "p_over": probability}
+
+
 def convert_snapshot(rows, *, provider_names, event_weeks, players, scoring,
-                     required_stats, yardage_sd, fallbacks=None):
+                     required_stats, yardage_sd, fallbacks=None, optional_stats=None):
     """Return {(Sleeper pid, week): row} plus rejected-evidence diagnostics.
 
     players: [{pid, name}]. required_stats: {pid: [stat, ...]} explicitly
@@ -134,6 +182,15 @@ def convert_snapshot(rows, *, provider_names, event_weeks, players, scoring,
     yardage_sd: {(pid, week, stat): SD}. fallbacks: same keys, each containing
     team_stat_mean, share, source_ts, rationale. Team stat mean must be derived
     externally from a team total; points alone cannot identify player yards.
+
+    optional_stats: {pid: [stat, ...]}, T2e. Unlike required_stats, an
+    optional stat's absence never nulls anchor_fp or appears in
+    missing_stats -- it contributes when the market has it and is silently
+    skipped (recorded in optional_missing) when not, so a component that is
+    only sometimes posted (the anytime-TD market) degrades gracefully
+    instead of poisoning an otherwise-complete anchor. "td" specifically is
+    priced one-sided (see touchdown_distribution): it never needs a paired
+    under side or a yardage_sd entry, and is matched here by stat name alone.
     """
     aliases = load_name_aliases()
     identities = defaultdict(list)
@@ -167,18 +224,23 @@ def convert_snapshot(rows, *, provider_names, event_weeks, players, scoring,
             diagnostics.append({"event": event, "provider_id": provider_id, "reason": "unresolved_identity_or_week"})
             continue
         pid = matches[0]
-        if stat not in required_stats.get(pid, []):
+        if stat not in required_stats.get(pid, []) and stat not in (optional_stats or {}).get(pid, []):
             continue
         if (pid, week) in events and events[pid, week] != event:
             raise ValueError("Multiple events for one player-week")
         events[pid, week] = event
         try:
-            if set(pair) != {"over", "under"}:
-                raise ValueError("Missing matching side")
-            sd = yardage_sd.get((pid, week, stat))
-            if stat.endswith("_yd") and sd is None:
-                raise ValueError("Yardage SD assumption required")
-            distribution = stat_distribution(line, pair["over"]["price"], pair["under"]["price"], sd=sd)
+            if stat == "td":
+                if "over" not in pair:
+                    raise ValueError("Missing anytime-TD price")
+                distribution = touchdown_distribution(line, pair["over"]["price"])
+            else:
+                if set(pair) != {"over", "under"}:
+                    raise ValueError("Missing matching side")
+                sd = yardage_sd.get((pid, week, stat))
+                if stat.endswith("_yd") and sd is None:
+                    raise ValueError("Yardage SD assumption required")
+                distribution = stat_distribution(line, pair["over"]["price"], pair["under"]["price"], sd=sd)
         except (ValueError, TypeError, KeyError) as exc:
             diagnostics.append({"pid": pid, "week": week, "stat": stat, "book": book, "reason": str(exc)})
             continue
@@ -189,11 +251,17 @@ def convert_snapshot(rows, *, provider_names, event_weeks, players, scoring,
     for pid, week in sorted(keys):
         stats, distributions, missing, used_fallback, sources = {}, {}, [], [], set()
         required = required_stats.get(pid, [])
+        optional = (optional_stats or {}).get(pid, [])
         if not required or len(set(required)) != len(required):
             raise ValueError("Require unique scoring components for every player")
-        if "rush_rec_yd" in required and ({"rush_yd", "rec_yd"} & set(required)):
+        if len(set(optional)) != len(optional):
+            raise ValueError("Require unique optional scoring components for every player")
+        if set(required) & set(optional):
+            raise ValueError("A stat cannot be both required and optional")
+        combined = set(required) | set(optional)
+        if "rush_rec_yd" in combined and ({"rush_yd", "rec_yd"} & combined):
             raise ValueError("Overlapping yardage components")
-        if "td" in required and ({"rush_td", "rec_td"} & set(required)):
+        if "td" in combined and ({"rush_td", "rec_td"} & combined):
             raise ValueError("Overlapping touchdown components")
         for stat in required:
             number(scoring[stat])  # fail closed for unsupported scoring
@@ -215,13 +283,36 @@ def convert_snapshot(rows, *, provider_names, event_weeks, players, scoring,
                 sources.add(fallback["source_ts"])
             else:
                 missing.append(stat)
+        # Optional stats (T2e: "td") never gate anchor_fp on absence -- they
+        # contribute additively when the market has them and are recorded in
+        # optional_missing, never missing_stats, when it doesn't. No fallback
+        # applies to an optional stat: a missing one degrades, it is never
+        # invented from a team share.
+        optional_missing = []
+        for stat in optional:
+            number(scoring[stat])  # fail closed for unsupported scoring, same as required
+            values = estimates.get((pid, week, stat), [])
+            if values:
+                mean = statistics.mean(d["mean"] for d in values)
+                variance = statistics.mean(d["variance"] + (d["mean"] - mean)**2 for d in values)
+                stats[stat] = mean
+                distributions[stat] = {"mean": mean, "variance": variance, "books": len(values), "models": sorted({d["model"] for d in values})}
+                sources.update(timestamps)
+            else:
+                optional_missing.append(stat)
         output[pid, week] = {
-            "anchor_fp": None if missing else sum(stats[s] * number(scoring[s]) for s in required),
+            "anchor_fp": None if missing else sum(stats[s] * number(scoring[s]) for s in stats),
             "implied_stats": stats, "stat_distributions": distributions,
             "source_ts": min(sources) if sources else None,
             "source_timestamps": sorted(sources),
-            "confidence": "incomplete" if missing else "fallback" if used_fallback else "conditional_market",
-            "missing_stats": missing, "fallbacks": used_fallback,
+            "confidence": (
+                "incomplete" if missing else
+                "fallback" if used_fallback else
+                "yardage_only" if optional_missing else
+                "conditional_market"
+            ),
+            "missing_stats": missing, "optional_missing": optional_missing,
+            "fallbacks": used_fallback,
             "fp_variance": None,  # cross-stat covariance is not identified
         }
     return {"rows": output, "diagnostics": diagnostics}
