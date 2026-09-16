@@ -38,15 +38,14 @@
     "ftn_drop_rate_roll3",
     "weekly_ecr",
     "weekly_ecr_sd",
-    "weekly_ecr_range",
-    "matchup_adjustment"
+    "weekly_ecr_range"
   ],
-  "final_step": "6_fitted_matchup",
+  "final_step": "5_consensus_ecr",
   "methodology": {
     "forecast_rule": "All rolling features are shifted one game; ECR scrape dates precede the first kickoff; train seasons always precede test season.",
     "interval_rule": "Position-specific 80th percentile absolute residual from the immediately prior season, predicted by earlier seasons.",
     "route_note": "Public participation data supports pass-play on-field participation, not a verified all-route count; the proxy is tested and only retained if it improves MAE.",
-    "selection_rule": "A source stays only when it reduces aggregate 2021-2025 walk-forward MAE and wins in at least three of five seasons; matchup prior strength alone is fitted on 2020 before evaluation."
+    "selection_rule": "A source stays only when it reduces aggregate 2021-2025 walk-forward MAE and wins in at least three of five seasons."
   },
   "paid_props_plan": {
     "expected_value": "Props are direct market expectations for player outcomes and plausibly add information beyond team totals, but the gain remains unmeasured.",
@@ -74,7 +73,6 @@
     "retained": {
       "fantasypros_ecr_via_nflverse": true,
       "ffopportunity_expected_points": true,
-      "fitted_matchup_adjustment": true,
       "nflverse_implied_team_totals": false,
       "structural_groups": {
         "ftn_charting": true,
@@ -303,43 +301,6 @@
         "9": 2.7943
       },
       "season_wins": 5
-    },
-    "6_fitted_matchup": {
-      "interval_80_coverage": 0.8055,
-      "interval_mean_width": 14.8457,
-      "kept": true,
-      "mae": 4.7099,
-      "mae_by_position": {
-        "QB": 6.194,
-        "RB": 4.7042,
-        "TE": 3.6576,
-        "WR": 4.7902
-      },
-      "mae_by_season": {
-        "2021": 4.8987,
-        "2022": 4.6888,
-        "2023": 4.5962,
-        "2024": 4.7078,
-        "2025": 4.6586
-      },
-      "mean_weekly_rank_correlation": 0.6097,
-      "n": 25903,
-      "ros_mae_at_checkpoint": {
-        "3": 2.774,
-        "6": 2.7344,
-        "9": 2.7892
-      },
-      "season_wins": 3,
-      "selected_prior_games": 16.0,
-      "selection_mae": 5.1057,
-      "tuning_mae": {
-        "0.0": 5.1147,
-        "16.0": 5.1057,
-        "2.0": 5.1103,
-        "32.0": 5.1065,
-        "4.0": 5.1094,
-        "8.0": 5.1091
-      }
     }
   }
 }

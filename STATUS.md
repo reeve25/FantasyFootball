@@ -25,11 +25,14 @@ not a session log. Use `git log` and focused component docs for history.
 - The 2021-2025 point-in-time public-model scorecard is available through
   `python ff.py model-scorecard`. It scores 25,903 player-weeks in exact league
   scoring, retains ffopportunity, nflverse usage/participation/NGS/FTN signals,
-  historical FantasyPros ECR, and fitted matchup shrinkage, and writes the
-  measured report to `docs/model_scorecard.json` plus a trained XGBoost artifact
-  under `advisor_runtime/models/`. Implied team totals were measured and removed.
-- The full offline suite passes: 201 runtime tests plus 35 outer integration
-  tests (236 total). Real acceptance check `python ff.py packet "Kenneth Walker
+  and historical FantasyPros ECR, and writes the measured report to
+  `docs/model_scorecard.json` plus a trained XGBoost artifact under
+  `advisor_runtime/models/`. Implied team totals and fitted matchup-opponent
+  shrinkage were both measured and removed (matchup shrinkage regressed the
+  2024 walk-forward season, 4.7065 -> 4.7078 MAE, for a negligible aggregate
+  gain; see `docs/HANDOFF.md`). Final step is `5_consensus_ecr`, MAE 4.7101.
+- The full offline suite passes: 200 runtime tests plus 35 outer integration
+  tests (235 total). Real acceptance check `python ff.py packet "Kenneth Walker
   for Drake London?" --offline --flock` PASS with live Flock ranks, values,
   suggestions, and exact `You win!` verdict evidence.
 

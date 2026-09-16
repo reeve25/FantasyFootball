@@ -77,24 +77,6 @@ class PublicModelScorecardTests(unittest.TestCase):
 
         self.assertTrue(implied["implied_total"].isna().all())
 
-    def test_matchup_opponent_is_derived_from_away_home_game_id(self):
-        frame = pd.DataFrame({
-            "season": [2024, 2024, 2024, 2024],
-            "week": [1, 1, 2, 2],
-            "game_id": ["2024_01_BUF_NYJ", "2024_01_BUF_NYJ", "2024_02_NYJ_BUF", "2024_02_NYJ_BUF"],
-            "posteam": ["BUF", "NYJ", "NYJ", "BUF"],
-            "position": ["WR"] * 4,
-            "actual_points": [12.0, 8.0, 10.0, 14.0],
-            "expected_points": [10.0] * 4,
-        })
-
-        result = scorecard._matchup_priors(frame)
-
-        self.assertEqual(result["opponent_team"].tolist(), ["NYJ", "BUF", "BUF", "NYJ"])
-        week_two = result[result["week"] == 2].set_index("posteam")
-        self.assertEqual(week_two.loc["NYJ", "matchup_prior_count"], 1)
-        self.assertEqual(week_two.loc["BUF", "matchup_prior_count"], 1)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,14 +21,13 @@
     "ftn_drop_rate_roll3",
     "weekly_ecr",
     "weekly_ecr_sd",
-    "weekly_ecr_range",
-    "matchup_adjustment"
+    "weekly_ecr_range"
   ],
   "interval_radius_80_by_position": {
-    "QB": 9.811445114135742,
-    "RB": 7.339022369384769,
-    "TE": 5.562278804779053,
-    "WR": 7.385431480407713
+    "QB": 9.806933509826663,
+    "RB": 7.349767875671389,
+    "TE": 5.567776355743408,
+    "WR": 7.367568740844726
   },
   "matrix_columns": [
     "actual_roll3",
@@ -53,12 +52,11 @@
     "weekly_ecr",
     "weekly_ecr_sd",
     "weekly_ecr_range",
-    "matchup_adjustment",
     "pos_QB",
     "pos_RB",
     "pos_WR",
     "pos_TE"
   ],
-  "scorecard_final_step": "6_fitted_matchup",
+  "scorecard_final_step": "5_consensus_ecr",
   "trained_through_season": 2025
 }

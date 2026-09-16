@@ -330,26 +330,6 @@ def _rolling_features(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def _matchup_priors(frame: pd.DataFrame) -> pd.DataFrame:
-    residuals = frame.copy()
-    game_parts = residuals["game_id"].astype(str).str.rsplit("_", n=2, expand=True)
-    away_team = game_parts[1]
-    home_team = game_parts[2]
-    residuals["opponent_team"] = np.where(residuals["posteam"] == away_team, home_team, away_team)
-    residuals["opponent_residual"] = residuals["actual_points"] - residuals["expected_points"]
-    weekly = residuals.groupby(["season", "week", "opponent_team", "position"], as_index=False).agg(
-        matchup_sum=("opponent_residual", "sum"), matchup_count=("opponent_residual", "size")
-    )
-    weekly = weekly.sort_values(["season", "opponent_team", "position", "week"])
-    weekly["matchup_prior_sum"] = weekly.groupby(["season", "opponent_team", "position"])["matchup_sum"].cumsum() - weekly["matchup_sum"]
-    weekly["matchup_prior_count"] = weekly.groupby(["season", "opponent_team", "position"])["matchup_count"].cumsum() - weekly["matchup_count"]
-    return residuals.merge(
-        weekly[["season", "week", "opponent_team", "position", "matchup_prior_sum", "matchup_prior_count"]],
-        on=["season", "week", "opponent_team", "position"],
-        how="left",
-    )
-
-
 def build_feature_table(force: bool = False) -> pd.DataFrame:
     cache_path = CACHE_DIR / "public_features_v1.parquet"
     if cache_path.exists() and not force:
@@ -365,7 +345,6 @@ def build_feature_table(force: bool = False) -> pd.DataFrame:
     base = base.merge(_ftn_features(DATA_SEASONS), on=["season", "week", "game_id"], how="left")
     base = base.merge(_ranking_features(cutoffs), on=["season", "week", "norm_name"], how="left")
     base = _rolling_features(base)
-    base = _matchup_priors(base)
     base.to_parquet(cache_path, index=False)
     return base
 
@@ -541,24 +520,6 @@ def score_feature_set(
     return result
 
 
-def tune_matchup_strength(frame: pd.DataFrame, base_features: list[str]) -> tuple[float, dict[str, float]]:
-    scores: dict[str, float] = {}
-    for strength in (0.0, 2.0, 4.0, 8.0, 16.0, 32.0):
-        candidate = frame.copy()
-        candidate["matchup_adjustment"] = candidate["matchup_prior_sum"] / (
-            candidate["matchup_prior_count"].fillna(0.0) + strength
-        ).replace(0.0, np.nan)
-        metric = score_feature_set(
-            candidate,
-            build_ros_frame(candidate),
-            base_features + ["matchup_adjustment"],
-            seasons=SELECTION_SEASONS,
-        )
-        scores[str(strength)] = metric["mae"]
-    selected = min(scores.items(), key=lambda item: item[1])[0]
-    return float(selected), scores
-
-
 def _coverage(frame: pd.DataFrame, columns: Iterable[str]) -> dict[str, float]:
     return {column: round(float(frame[column].notna().mean()), 4) for column in columns if column in frame}
 
@@ -617,28 +578,7 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
     )
     steps["5_consensus_ecr"]["season_wins"] = consensus_wins
     steps["5_consensus_ecr"]["kept"] = consensus_kept
-    pre_matchup_features = step5_features if consensus_kept else step4_features
-
-    strength, strength_scores = tune_matchup_strength(frame, pre_matchup_features)
-    frame["matchup_adjustment"] = frame["matchup_prior_sum"] / (
-        frame["matchup_prior_count"].fillna(0.0) + strength
-    ).replace(0.0, np.nan)
-    ros_frame = build_ros_frame(frame)
-    step6_features = pre_matchup_features + ["matchup_adjustment"]
-    steps["6_fitted_matchup"] = score_feature_set(frame, ros_frame, step6_features)
-    steps["6_fitted_matchup"]["selected_prior_games"] = strength
-    steps["6_fitted_matchup"]["tuning_mae"] = strength_scores
-    comparison_step = "5_consensus_ecr" if consensus_kept else "4_structural_usage"
-    matchup_selection_mae = strength_scores[str(strength)]
-    steps["6_fitted_matchup"]["selection_mae"] = matchup_selection_mae
-    matchup_wins = _season_wins(steps["6_fitted_matchup"], steps[comparison_step])
-    steps["6_fitted_matchup"]["season_wins"] = matchup_wins
-    matchup_kept = (
-        steps["6_fitted_matchup"]["mae"] < steps[comparison_step]["mae"]
-        and matchup_wins >= 3
-    )
-    steps["6_fitted_matchup"]["kept"] = matchup_kept
-    final_features = step6_features if matchup_kept else pre_matchup_features
+    final_features = step5_features if consensus_kept else step4_features
 
     current_engine = None
     summary_path = ROOT.parent / "docs" / "backtest" / "summary.json"
@@ -657,7 +597,7 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
         "scoring": LEAGUE_SCORING,
         "methodology": {
             "forecast_rule": "All rolling features are shifted one game; ECR scrape dates precede the first kickoff; train seasons always precede test season.",
-            "selection_rule": "A source stays only when it reduces aggregate 2021-2025 walk-forward MAE and wins in at least three of five seasons; matchup prior strength alone is fitted on 2020 before evaluation.",
+            "selection_rule": "A source stays only when it reduces aggregate 2021-2025 walk-forward MAE and wins in at least three of five seasons.",
             "interval_rule": "Position-specific 80th percentile absolute residual from the immediately prior season, predicted by earlier seasons.",
             "route_note": "Public participation data supports pass-play on-field participation, not a verified all-route count; the proxy is tested and only retained if it improves MAE.",
         },
@@ -671,7 +611,6 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
                     source: details["kept"] for source, details in structural_ablation.items()
                 },
                 "fantasypros_ecr_via_nflverse": consensus_kept,
-                "fitted_matchup_adjustment": matchup_kept,
             },
             "unmeasured": {
                 "ffanalytics_multi_source": (
@@ -698,7 +637,7 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
             ),
         },
         "final_features": final_features,
-        "final_step": "6_fitted_matchup" if matchup_kept else comparison_step,
+        "final_step": "5_consensus_ecr" if consensus_kept else "4_structural_usage",
     }
     return report, frame, final_features
 
