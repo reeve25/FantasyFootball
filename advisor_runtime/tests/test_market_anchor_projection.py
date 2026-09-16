@@ -4,6 +4,7 @@ import unittest
 from advisor_runtime.market_anchor import touchdown_distribution
 from advisor_runtime.market_anchor_projection import (
     REQUIRED_STATS_BY_POSITION,
+    apply_consensus_fallback,
     build_identity_inputs,
     compute_projection_sources,
     inject_projection_sources,
@@ -257,6 +258,66 @@ class ComputeProjectionSourcesTests(unittest.TestCase):
         )
         self.assertAlmostEqual(result["sources"]["12522"]["market_anchor"]["3"], TE_EXPECTED_ANCHOR)
         self.assertFalse(result["td_scoring_usable"])
+
+
+class ApplyConsensusFallbackTests(unittest.TestCase):
+    def player(self, weekly_points):
+        return {"pid": "1", "name": "A", "weekly_points": {str(w): v for w, v in weekly_points.items()}}
+
+    def test_anchored_week_is_never_touched_or_double_counted(self):
+        sources = {"1": {"market_anchor": {"1": 9.0}, "market_anchor_blend": {"1": 9.5}}}
+        players = {"1": self.player({1: 20.0, 2: 21.0})}
+        merged, provenance = apply_consensus_fallback(players, sources, weeks=range(1, 3))
+        self.assertEqual(merged["1"]["market_anchor_blend"]["1"], 9.5)  # untouched
+        self.assertEqual(provenance["1"]["1"], "anchored")
+
+    def test_uncovered_week_falls_back_to_consensus(self):
+        sources = {"1": {"market_anchor": {"1": 9.0}, "market_anchor_blend": {"1": 9.5}}}
+        players = {"1": self.player({1: 20.0, 2: 21.0})}
+        merged, provenance = apply_consensus_fallback(players, sources, weeks=range(1, 3))
+        self.assertEqual(merged["1"]["market_anchor_blend"]["2"], 21.0)  # no assumptions -> passthrough
+        self.assertEqual(provenance["1"]["2"], "consensus")
+        # market_anchor (pure) is never extended.
+        self.assertNotIn("2", merged["1"]["market_anchor"])
+
+    def test_player_absent_from_sources_still_gets_full_consensus_fallback(self):
+        # e.g. a traded player with zero market coverage this fetch at all.
+        players = {"1": self.player({1: 10.0, 2: 11.0})}
+        merged, provenance = apply_consensus_fallback(players, {}, weeks=range(1, 3))
+        self.assertEqual(merged["1"]["market_anchor_blend"], {"1": 10.0, "2": 11.0})
+        self.assertEqual(provenance["1"], {"1": "consensus", "2": "consensus"})
+
+    def test_week_with_neither_anchor_nor_consensus_stays_missing(self):
+        players = {"1": self.player({1: 10.0})}  # no week 2 at all (e.g. a bye)
+        merged, provenance = apply_consensus_fallback(players, {}, weeks=range(1, 3))
+        self.assertNotIn("2", merged["1"]["market_anchor_blend"])
+        self.assertNotIn("2", provenance.get("1", {}))
+
+    def test_15_percent_cap_applies_uniformly_to_a_consensus_week(self):
+        players = {"1": self.player({2: 20.0})}
+        registry = [{
+            "player": "1", "week_range": [2, 2], "stat_affected": "fantasy_points",
+            "delta": 100.0, "confidence": 1.0, "rationale": "fixture", "source": "fixture",
+            "half_life_weeks": 4.0,
+        }]
+        merged, provenance = apply_consensus_fallback(
+            players, {}, assumption_registry=registry,
+            priced_in_guard=lambda a, w: False, weeks=range(1, 3),
+        )
+        # Same 15% cap assumptions.apply() already enforces for an anchored week.
+        self.assertAlmostEqual(merged["1"]["market_anchor_blend"]["2"], 20.0 * 1.15)
+        self.assertEqual(provenance["1"]["2"], "consensus")
+
+    def test_never_mutates_sources_or_players(self):
+        sources = {"1": {"market_anchor": {"1": 9.0}, "market_anchor_blend": {"1": 9.5}}}
+        players = {"1": self.player({1: 20.0, 2: 21.0})}
+        sources_copy, players_copy = (
+            {k: {kk: dict(vv) for kk, vv in v.items()} for k, v in sources.items()},
+            {k: {**v, "weekly_points": dict(v["weekly_points"])} for k, v in players.items()},
+        )
+        apply_consensus_fallback(players, sources, weeks=range(1, 3))
+        self.assertEqual(sources, sources_copy)
+        self.assertEqual(players, players_copy)
 
 
 class InjectProjectionSourcesTests(unittest.TestCase):

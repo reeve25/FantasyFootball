@@ -799,4 +799,172 @@ real code/APIs rather than guessing, and stop and report if no reliable
 local source exists rather than substituting synthetic actuals. Either way:
 one ticket only, run its acceptance check for real, if acceptance cannot be
 satisfied as written stop for approval rather than substitute, run
-selftests, update STATUS.md with results/blockers and commit."
+selftests, update STATUS.md with results/blockers and commit." (superseded
+below -- see the 2026-09-13 T2f entry for the current one; kept for history)
+
+## 2026-09-13 — T2f complete: multi-week blend fallback wired in
+
+T2e made the per-player market anchor complete (yardage + TD), but
+`evaluate_trade`'s multi-week rollup (`perspective_delta_pg` etc.) still
+came back null under `--projection-source blend`: a single fetch only ever
+has lines for the current week, `market_anchor_blend` therefore had only
+one week's entry per player, and `_roster_average` requires every evaluated
+week (effective week through week 17) to resolve. T2f implements the A2
+decision: market-anchored where a real line exists, consensus (sleeper+espn)
+elsewhere, T3 layered on both.
+
+### Decision Log
+
+- **Detecting "has a market line": exactly what `compute_projection_sources`
+  already resolved into `market_anchor_blend` this fetch — no new detection
+  mechanism.** A (pid, week) counts as "anchored" if and only if it already
+  has a non-null entry there (real line, identity/week resolved via T2c
+  metadata, required yardage complete). No separate cadence check was
+  built because none is needed: SportsGameOdds only ever posts near-term
+  player props (confirmed empirically across T2d-T2f's live fetches — every
+  one covered exactly the current NFL week, never further out), so in
+  practice this rule already reduces to "the current week is anchored,
+  every other evaluated week is consensus." If the provider ever starts
+  posting multi-week props, this rule keeps working unchanged -- it never
+  assumed "current week" specifically, only "whatever `compute_projection_
+  sources` actually resolved."
+- **Weighting: a hard per-week switch, never a partial within-week blend.**
+  For a covered week, weight = 100% anchor (T3-adjusted); for an uncovered
+  week, weight = 100% consensus (T3-adjusted); never a weighted average of
+  the two within one week. Reason: there is no calibrated, comparable
+  variance to combine them with. `market_anchor_blend`'s own `variance`
+  already becomes `"unknown_after_adjustment"` once any T3 effect applies
+  (assumptions.apply's existing behavior), and the sleeper+espn consensus
+  was never assigned a calibrated variance either -- inverse-variance
+  weighting (or any other principled combination) needs both, and inventing
+  one to justify a blend ratio would be exactly the kind of fabrication the
+  T2 series has been refusing to do. A hard switch avoids a discontinuity
+  from mixing two heterogeneous, non-comparable estimates; it does not avoid
+  the (unavoidable, real) discontinuity of the *methodology* changing
+  between adjacent weeks, which is a fact about data availability, not
+  something a smoother formula can paper over honestly.
+- **No double-counting: each (pid, week) gets T3 applied exactly once.**
+  `apply_consensus_fallback` only ever writes a week into
+  `market_anchor_blend` that isn't already there (`if week_str in
+  blend_key_dict: continue`) -- an anchored week (even one whose anchor came
+  out null and was therefore never written) is never re-derived from
+  consensus and never touched twice. Verified by unit test
+  (`test_anchored_week_is_never_touched_or_double_counted`).
+- **Provenance tag: yes, additive, per the recommendation.** `blend_
+  provenance[pid][week_str]` is `"anchored"` or `"consensus"`, surfaced in
+  the packet as a new top-level `blend_provenance` field only when a
+  market_anchor/blend fetch ran (existing fields, `exact_engine_decision_
+  math`, `independent_projection_checks`, etc. are all unchanged in shape).
+  A week with neither an anchor nor a consensus projection (bye, or
+  genuinely unprojected) is absent from provenance too -- still missing,
+  never zero, never falsely tagged either way. T5 can score anchored vs.
+  consensus weeks separately once real settled data exists, using this tag
+  with no further plumbing.
+- **T3 applies uniformly, confirmed by construction and by test.** Both
+  paths call the identical `assumptions.apply(anchor, registry, player=pid,
+  week=week, scoring=resolved_scoring, priced_in_guard=priced_in_guard)` --
+  an anchored week passes the real `anchor_row` from `convert_snapshot`; a
+  consensus week passes a synthetic `{"anchor_fp": consensus_value,
+  "fp_variance": None}`. `apply()` itself doesn't know or care which kind of
+  dict it received; the 15% gross cap (`.15 * abs(base)`) is proportional to
+  whatever `base` is, so it's automatically uniform -- verified by unit test
+  (`test_15_percent_cap_applies_uniformly_to_a_consensus_week`: a
+  fantasy_points assumption of `delta=100` on a `base=20.0` consensus week
+  caps at exactly `20.0 * 1.15`, the same cap shape an anchored week gets).
+- **Scope had to widen mid-ticket from "the traded players" to "both full
+  rosters."** The first live run (2 players fallback-covered) still came
+  back null: `evaluate_trade` optimizes each team's *entire* lineup, so
+  every roster player selected under `--projection-source blend` needs a
+  value, not just the two being traded -- otherwise `optimize_lineup` can't
+  fill a required slot for a week, and `_roster_average` nulls the whole
+  average even though the traded players themselves were fully covered.
+  Fixed by scoping `apply_consensus_fallback`'s player set to the union of
+  both rosters' `player_ids` (`ff.py`'s worker, using `terms["perspective_
+  rid"]`/`terms["other_rid"]`), while the real market fetch (network,
+  identity/week resolution, yardage+TD conversion) stays scoped to the
+  traded players only, unchanged from T4 -- consensus fallback is free
+  (reads existing `weekly_points`, no network), so widening its scope adds
+  no cost; widening the real fetch would have.
+
+### Deferred refactors (not done this session)
+
+- `blend_provenance` in the packet currently lists every roster player (31
+  in the acceptance run) even though only the traded players are usually
+  interesting to a reader; trimming the packet-facing field to the traded
+  players while keeping the full-roster fallback for lineup math internally
+  would shrink an already-large payload (this command already exceeds the
+  compact-packet size limit and falls back to `evidence_file` regardless,
+  independent of T2f -- `market_anchor_diagnostics` alone is routinely
+  4,000+ rows). Nice-to-have, not needed for this ticket's acceptance.
+- `ff.py`'s worker now computes `rosters_by_id`/`perspective_rid`/
+  `other_rid` independently of `evaluate_trade`'s own identical computation
+  a few lines later (inside `a.build_packet` -> `evaluate_trade`). Small,
+  harmless duplication today; if a future ticket needs this roster-membership
+  logic a third time, it's worth factoring into a shared helper then.
+
+### Acceptance: run live against the T4 Drake London / Kenneth Walker III case
+
+`ff.py --full trade --give "Drake London" --get "Kenneth Walker III"
+--projection-source blend`. Full record in docs/T2_ACCEPTANCE.json's
+`t2f_check`.
+
+| field | T2e (before) | T2f (after) |
+| --- | --- | --- |
+| perspective_delta_pg | null | -0.0093 |
+| counterparty_delta_pg | null | -6.0097 |
+| perspective_playoff_delta_pg | null | -0.6907 |
+
+Both are now real numbers -- **identical to the existing default**, which
+is the mathematically correct result here, not a sign the fallback is
+inert: this trade's effective week is 2 (week 1 is already in progress, so
+`trade_horizon` bumps it), meaning the one anchored week (1) falls entirely
+outside the evaluated range [2..17], every evaluated week is a consensus
+week, and with an empty assumption registry T3's `apply()` is a no-op
+passthrough on a consensus week -- so "blend" reduces to exactly the
+existing sleeper+espn default for this specific trade today. What changed
+underneath: `independent_projection_checks["market_anchor_blend"]` went
+from all-null (T2e) to the same real 16-week-averaged numbers, and
+`blend_provenance["8112"]`/`["8151"]` show `{"1": "anchored", "2":
+"consensus", "3": "consensus", ...}` -- proving the per-week fallback ran,
+not that it happened to matter for this particular trade's math.
+`independent_projection_checks["market_anchor"]` (pure) remains all-null,
+exactly as T2e left it, per the "do not weaken existing
+independent_projection_checks; the new path is additive" rule.
+
+**T2f verdict: PASS.** Test suite: `python ff.py --selftest`, 129 runtime +
+31 other tests (160 total) pass, including 6 new tests for
+`apply_consensus_fallback` (anchored week untouched/no double-count,
+consensus fallback for a covered player, full-fallback for a player absent
+from `sources` entirely, a week with neither anchor nor consensus stays
+missing, the 15% cap applies uniformly, no mutation of inputs). One
+unrelated pre-existing flaky test (already logged in T2d's entry) failed
+once and passed on immediate re-run. Default (no `--projection-source`)
+behavior reconfirmed byte-for-byte unchanged: `-0.0093`, identical to the
+T4/T2d/T2e baselines.
+
+Blockers: none for T2f itself. Open for a future ticket, same shape T2e
+left them: (a) reception counts and secondary rushing volume remain
+unpriced in the anchor itself; (b) T2b (real settled-week SD validation)
+remains unvalidated and deferred; (c) the two deferred refactors above.
+
+Exact starting prompt for T5:
+"Read BRIEF.md, STATUS.md, docs/FORECASTING.md, docs/TICKETS.md and
+docs/T2_ACCEPTANCE.json's t2f_check. The market-anchored projection loop
+(T2a/T2d/T2e/T2f) is now structurally complete: market_anchor_blend covers
+every evaluated week (anchored where a line exists, consensus elsewhere,
+T3 layered on both) and evaluate_trade's multi-week rollup produces real
+numbers under --projection-source blend. T2b (real settled-week SD
+validation) remains unvalidated and deferred -- do not work it or treat the
+provisional YARDAGE_SD_DEFAULTS as validated. Work T5 only: build
+advisor_runtime/backtest.py scoring stored projection snapshots against
+actual results (MAE per source: anchor/Sleeper/ESPN/blend), using
+blend_provenance's anchored/consensus tag to score those separately once
+enough weeks of real data exist. The ticket flags where actual weekly stat
+lines would come from as uncertain -- no existing module fetches final box
+scores today, so resolve that by reading real code/APIs rather than
+guessing, and stop and report if no reliable local source exists rather
+than substituting synthetic actuals. One ticket only; do not start T6 or
+T7. Run T5's acceptance (a report file for at least one completed week,
+numbers sanity-checked); if it cannot be satisfied as written, stop for
+approval rather than substitute. Run selftests, update STATUS.md with
+results/blockers, and commit."

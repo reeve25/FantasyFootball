@@ -265,7 +265,85 @@ def compute_projection_sources(
         # see resolve_touchdown_scoring. False means every anchor this run
         # is yardage-only regardless of market coverage, not a per-player gap.
         "td_scoring_usable": td_usable,
+        # T2f: the scoring dict actually used above (with "td" merged in when
+        # usable), so a caller extending market_anchor_blend with
+        # apply_consensus_fallback prices any stat-specific assumption with
+        # the identical coefficients, not a second, possibly-inconsistent copy.
+        "resolved_scoring": resolved_scoring,
     }
+
+
+def apply_consensus_fallback(
+    players_by_id: dict[str, dict[str, Any]],
+    sources: dict[str, dict[str, dict[str, float]]],
+    *,
+    assumption_registry: list[dict[str, Any]] | None = None,
+    priced_in_guard=None,
+    scoring: dict[str, float] | None = None,
+    weeks: range = range(1, 19),
+) -> tuple[dict[str, dict[str, dict[str, float]]], dict[str, dict[str, str]]]:
+    """T2f: extend market_anchor_blend to every week a fresh fetch didn't
+    reach, using the player's existing sleeper+espn consensus
+    (player["weekly_points"], the same field _projection_for_week's default
+    path already reads) as that week's input to the identical
+    assumptions.apply() call an anchored week already goes through -- so
+    T3's 15% cap and every other guard apply uniformly to both, with no
+    special-casing. "market_anchor" (pure) is untouched: this only extends
+    "market_anchor_blend", and only ever fills a week market_anchor_blend
+    doesn't already have a real (non-null) value for -- an anchored week is
+    never touched or double-counted through the fallback path.
+
+    Detecting "has a market line": exactly whatever compute_projection_sources
+    already put in market_anchor_blend for that week from the fetched
+    snapshot's own event_metadata (T2c's season_week field) -- no separate
+    detection mechanism. In practice a single fetch only ever has near-term
+    lines (SportsGameOdds posts player props ~1 week ahead, never a full
+    season in one call), so today this means "the current week is anchored,
+    every other week in range is consensus." See STATUS.md's T2f Decision
+    Log for why a hard per-week switch was used instead of a partial
+    within-week blend: the two estimates have no calibrated, comparable
+    variance to combine (market_anchor_blend's variance already becomes
+    "unknown" once any T3 adjustment applies, and the sleeper+espn consensus
+    was never assigned one either), so there is no principled weighting
+    besides "whichever single evidence source exists for that week."
+
+    Returns (merged_sources, provenance). provenance[pid][week_str] is
+    "anchored" (already a real posted-line-derived value) or "consensus"
+    (no line existed for that week; the sleeper+espn average was used as
+    T3's input instead). A week absent from provenance had neither a market
+    anchor nor a consensus projection (bye/unprojected) -- still missing,
+    never zero-filled.
+    """
+    registry = assumption_registry or []
+    merged: dict[str, dict[str, dict[str, float]]] = {
+        pid: {key: dict(points) for key, points in player_sources.items()}
+        for pid, player_sources in sources.items()
+    }
+    provenance: dict[str, dict[str, str]] = {}
+    for pid, player in players_by_id.items():
+        blend_key_dict = merged.setdefault(
+            pid, {MARKET_ANCHOR_KEY: {}, BLEND_KEY: {}}
+        ).setdefault(BLEND_KEY, {})
+        player_provenance = {week_str: "anchored" for week_str in blend_key_dict}
+        consensus = player.get("weekly_points") or {}
+        for week in weeks:
+            week_str = str(week)
+            if week_str in blend_key_dict:
+                continue  # already anchored this run; never overwritten
+            consensus_value = consensus.get(week_str)
+            if consensus_value is None:
+                continue  # genuinely no evidence for this week; leave missing
+            synthetic_anchor = {"anchor_fp": float(consensus_value), "fp_variance": None}
+            blended = assumptions_module.apply(
+                synthetic_anchor, registry, player=pid, week=week,
+                scoring=scoring, priced_in_guard=priced_in_guard,
+            )
+            if blended["adjusted_fp"] is not None:
+                blend_key_dict[week_str] = blended["adjusted_fp"]
+                player_provenance[week_str] = "consensus"
+        if player_provenance:
+            provenance[pid] = player_provenance
+    return merged, provenance
 
 
 def inject_projection_sources(

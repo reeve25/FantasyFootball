@@ -147,3 +147,42 @@ All 6 got a real, non-fabricated TD component this run and moved materially
 closer to the default. The trade-level multi-week rollup limitation
 described above is unchanged by T2e -- it's about weeks 2-17 having no
 market data at all, not about which stats the anchor includes.
+
+## T2f (2026-09-13): the multi-week rollup is fixed -- market-anchored where priced, consensus elsewhere
+
+The gap above (`evaluate_trade` needs weeks effective_week..17; a fetch only
+covers the current week) is now closed for **`market_anchor_blend`**, not
+for `market_anchor` (pure) -- that distinction is deliberate. `market_
+anchor_projection.apply_consensus_fallback` extends `market_anchor_blend`
+to every evaluated week a fetch didn't reach: it takes the player's
+existing sleeper+espn consensus (`player["weekly_points"]`, the same field
+`_projection_for_week`'s untouched default path reads) as that week's input
+to the identical `assumptions.apply()` call an anchored week already goes
+through, so T3's 15% cap and every guard apply uniformly. A hard per-week
+switch is used -- 100% anchor or 100% consensus, never a partial blend
+within one week -- because there's no calibrated, comparable variance
+between the two to combine (see STATUS.md's T2f Decision Log). Each
+player-week gets a `blend_provenance` tag, `"anchored"` or `"consensus"`,
+new and additive in the packet.
+
+This had to cover **both full rosters**, not just the traded players:
+`evaluate_trade` optimizes each team's whole lineup, so every roster player
+selected under `--projection-source blend` needs a value or a week (and
+then the whole average) nulls, even with the traded players themselves
+fully covered. Only the real market fetch stays scoped to the traded
+players (unchanged from T4); the consensus fallback is free (no network) so
+widening its scope to both rosters costs nothing.
+
+Verified live, `ff.py trade --give "Drake London" --get "Kenneth Walker
+III" --projection-source blend` (docs/T2_ACCEPTANCE.json's `t2f_check`):
+`perspective_delta_pg`/`counterparty_delta_pg`/`perspective_playoff_delta_pg`
+are now `-0.0093`/`-6.0097`/`-0.6907` -- real numbers, matching the existing
+default exactly. That match is expected, not a sign the fallback did
+nothing: this trade's effective week (2) excludes the one anchored week
+(1), so every evaluated week is a consensus week, and with no curated
+assumptions T3 is a no-op passthrough on a consensus week -- "blend"
+mathematically reduces to the default for this specific trade today.
+`independent_projection_checks["market_anchor_blend"]` went from all-null
+to those same real numbers; `independent_projection_checks["market_anchor"]`
+(pure) stays all-null, exactly as T2e left it -- the new path is additive,
+not a replacement.

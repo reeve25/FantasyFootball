@@ -166,6 +166,7 @@ def worker(args):
     projection_source = getattr(args, "projection_source", None)
     market_anchor_diagnostics = None
     market_anchor_attribution = None
+    market_anchor_blend_provenance = None
     if args.command == "trade" and projection_source in ("market_anchor", "blend"):
         # T4: fetch fresh lines for only the traded players and compute the
         # T2 anchor + T3 blend, injected additively into
@@ -173,6 +174,7 @@ def worker(args):
         # directly -- select_projection_source below does that, and only for
         # the players/sources it is asked to use.
         from advisor_runtime.market_anchor_projection import (
+            apply_consensus_fallback,
             compute_projection_sources,
             inject_projection_sources,
         )
@@ -196,9 +198,36 @@ def worker(args):
                 players=anchor_players,
                 scoring=(current.get("league") or {}).get("scoring_settings") or {},
             )
-            current["players"] = inject_projection_sources(current["players"], result["sources"])
+            # T2f: extend market_anchor_blend (only) to every week this
+            # trade's evaluation needs but the fetch has no line for, using
+            # each player's existing sleeper+espn consensus as that week's
+            # T3 input. "market_anchor" (pure) is untouched -- still
+            # anchored-weeks-only, by design. Scoped to BOTH full rosters,
+            # not just the traded players: evaluate_trade optimizes each
+            # team's whole lineup, so every roster player selected as
+            # "blend" needs a value or optimize_lineup can't fill a
+            # required slot and the week -- then the whole average -- nulls,
+            # even though the traded players themselves are covered. Only
+            # the traded players get a real market fetch (unchanged from
+            # T4); everyone else gets the (free, no-network) consensus
+            # fallback only.
+            rosters_by_id = {int(row["roster_id"]): row for row in current.get("rosters") or []}
+            perspective_rid = int(terms.get("perspective_rid", a.MY_ROSTER_ID))
+            other_rid = int(terms["other_rid"])
+            roster_ids = {
+                str(pid)
+                for rid in (perspective_rid, other_rid)
+                for pid in (rosters_by_id.get(rid) or {}).get("player_ids") or []
+            } | set(involved_ids)
+            merged_sources, blend_provenance = apply_consensus_fallback(
+                {pid: current["players"][pid] for pid in roster_ids if pid in current["players"]},
+                result["sources"],
+                scoring=result["resolved_scoring"],
+            )
+            current["players"] = inject_projection_sources(current["players"], merged_sources)
             market_anchor_diagnostics = result["diagnostics"]
             market_anchor_attribution = result["attribution"]
+            market_anchor_blend_provenance = blend_provenance
             if result["provisional_sd_stats"]:
                 current.setdefault("runtime_warnings", []).append(
                     "T2d: market_anchor/blend used provisional per-position yardage "
@@ -244,6 +273,8 @@ def worker(args):
             packet["market_anchor_diagnostics"] = market_anchor_diagnostics
         if market_anchor_attribution is not None:
             packet["assumption_attribution"] = market_anchor_attribution
+        if market_anchor_blend_provenance:
+            packet["blend_provenance"] = market_anchor_blend_provenance
     save(packet)
     if args.command == "discover":
         from advisor_runtime.trade_search import discover

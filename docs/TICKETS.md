@@ -13,7 +13,7 @@
 # STATUS.md. T1 (spec bootstrap: create this file structure) is complete and
 # deleted from this list.
 
-## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d/T2e]
+## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d/T2e/T2f]
 
 T2a (2026-09-12): conditional offline converter implemented; eight new unit
 tests pass through `ff.py selftest`. See docs/MARKET_ANCHOR.md for assumptions
@@ -44,6 +44,21 @@ the conversion design; see STATUS.md's 2026-09-13 T2e entry for the full
 reasoning. All 6 real players in the acceptance run moved from 33%-56% to
 54%-88% of the default projection. `rec`/secondary rushing volume and T2b
 validation remain open. See docs/T2_ACCEPTANCE.json's `t2e_check`.
+
+T2f (2026-09-13): closed the multi-week gap T2d/T2e left open --
+`evaluate_trade` needs weeks effective_week..17, but a single fetch only
+covers the current week, so `market_anchor_blend`'s rollup came back null
+even with a complete per-player anchor. `market_anchor_projection.
+apply_consensus_fallback` extends `market_anchor_blend` (only -- "market_anchor"
+pure stays anchored-weeks-only) to every week a fetch didn't reach, using
+each player's existing sleeper+espn consensus as that week's input to the
+same T3 `apply()` call, tagged per-week `"anchored"`/`"consensus"` in a new
+additive `blend_provenance` packet field. Had to widen from "the traded
+players" to "both full rosters" mid-ticket: `evaluate_trade` optimizes each
+team's whole lineup, not just the traded assets. `ff.py trade
+--projection-source blend` now returns real, non-null
+`perspective_delta_pg`/`counterparty_delta_pg`. See STATUS.md's 2026-09-13
+T2f entry and docs/T2_ACCEPTANCE.json's `t2f_check`.
 
 T2c (2026-09-12): user-authorized prerequisite before T2b, completed. New line
 rows retain provider player names and event time/week/team/status metadata

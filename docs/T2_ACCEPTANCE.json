@@ -278,5 +278,42 @@
     "all_players_got_a_real_td_component": true,
     "full_test_suite": "python ff.py --selftest: 123 + 31 passing (154 total, 23 new tests). One unrelated pre-existing flaky test (test_focused_market_packet_flags_and_warns_on_lost_book_coverage, logged in the T2d entry, fails ~20% of the time on any commit) failed once and passed on immediate re-run.",
     "default_behavior_unchanged": "Confirmed: convert_snapshot's new optional_stats parameter defaults to None (no behavior change for any existing caller); the pre-existing test suite (T2a-T2d) passes unmodified against the changed convert_snapshot. ff.py trade with no --projection-source flag was re-run and its perspective_delta_pg matched the pre-T2e value exactly."
+  },
+  "t2f_check": {
+    "checked_at_utc": "2026-09-13T01:14:05.991244+00:00",
+    "ticket": "T2f: multi-week blend fallback (market-anchored where priced, consensus elsewhere)",
+    "verdict": "PASS",
+    "snapshot": "advisor_runtime/data/market_history/sports_game_odds/2026-09-13T011405.991244Z-ce31c150cd4f48ba95623795ff87ce21.jsonl",
+    "command": "ff.py --full trade --give \"Drake London\" --get \"Kenneth Walker III\" --projection-source blend",
+    "before": {
+      "perspective_delta_pg": null,
+      "counterparty_delta_pg": null,
+      "perspective_playoff_delta_pg": null,
+      "note": "T2e state: market_anchor_blend only had a week-1 entry per player; evaluate_trade needs weeks 2-17 (effective_week 2, since week 1 is in progress); _roster_average requires every week to resolve, so the average nulled even though the per-player week-1 anchor was real."
+    },
+    "after": {
+      "perspective_delta_pg": -0.0093,
+      "counterparty_delta_pg": -6.0097,
+      "perspective_playoff_delta_pg": -0.6907
+    },
+    "matches_existing_default_exactly": true,
+    "why_it_matches_default": "The trade's effective week is 2 (week 1 already in progress), so the only anchored week (1) falls outside the evaluated range [2..17] for this specific trade. Every evaluated week is therefore a consensus-fallback week, and with an empty assumption registry T3's apply() is a no-op passthrough -- so 'blend' is mathematically identical to the existing sleeper+espn default for this trade. This is the correct, expected result given today's real market coverage (SGO only posts ~1 week of props ahead) and is not a sign the fallback did nothing: market_anchor_blend went from all-null (T2e) to a real 16-week series per player (T2f), and independent_projection_checks now reports it.",
+    "blend_provenance_sample": {
+      "8112": {
+        "1": "anchored",
+        "2": "consensus",
+        "3": "consensus"
+      },
+      "8151": {
+        "1": "anchored",
+        "2": "consensus",
+        "3": "consensus"
+      }
+    },
+    "blend_provenance_full_roster_player_count": 31,
+    "independent_projection_checks_now_includes_market_anchor_blend": true,
+    "market_anchor_pure_still_null_by_design": "independent_projection_checks['market_anchor'] (pure, no fallback) remains all-null for this trade, exactly as T2e left it -- required by the ticket's 'do not weaken existing independent_projection_checks; the new path is additive' rule. Only market_anchor_blend was extended.",
+    "full_test_suite": "python ff.py --selftest: 129 + 31 passing (160 total, 6 new tests for apply_consensus_fallback). One unrelated pre-existing flaky test (test_focused_market_packet_flags_and_warns_on_lost_book_coverage, logged in T2d's entry) failed once during this session and passed on immediate re-run -- not a T2f regression.",
+    "default_behavior_unchanged": "Confirmed: ff.py trade with no --projection-source flag returns perspective_delta_pg: -0.0093, identical to the T4/T2d/T2e baselines. select_projection_source, evaluate_trade, optimize_lineup, _roster_average, _legalize_roster, and _projection_for_week are untouched by T2f -- the fallback lives entirely in market_anchor_projection.apply_consensus_fallback (new) plus its ff.py wiring."
   }
 }
