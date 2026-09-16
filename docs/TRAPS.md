@@ -54,6 +54,12 @@ pricing a trade.
 - Position forecast SDs: RB 3.85, WR 3.20, QB 3.02, TE 2.27.
 - Thin book coverage on bench depth is not a problem — those players contribute
   ~0.00 to best-8.
+- A null sportsbooks block under --market means one of two things: the
+  player's game has already started or finished (no live props — expected, not
+  a gap), or no lines are posted (a real coverage gap). Check kickoff before
+  treating it as missing data. Either way, a comparison where one side has
+  market data and the other doesn't is not on a common basis — drop --market so
+  both sit on projections, or treat the gap as unpriced.
 
 ## Performance
 
@@ -64,6 +70,16 @@ scanning the full board. That is deliberate — no identity cache means a
 projection changed in place is reflected immediately in the next score. Do not
 add lru_cache here; it would reintroduce staleness the current design avoids.
 Verify any performance patch by diffing against the unpatched path.
+
+## Known bugs
+
+- device_commit_files can report success while writing stale bytes when reusing
+  a container path already committed from. It returns {"written":[...]} with no
+  rejections and bumps mtime. Read the file back or check its size after any
+  repeat write to the same path; write from a fresh path if it mismatches.
+- discover excluded 27 of 60 candidates (45%) for incomplete_projection_math on
+  a bounded scan, 24.9s of a 45s ceiling. An empty shortlist does not mean no
+  good trade exists — nearly half were never priced.
 
 ## Environment
 
