@@ -126,9 +126,9 @@ At inference time (`ff.py public-inference` and injected into `packet` when `--p
 1. ~~Remove matchup shrinkage.~~ Done.
 2. ~~Add ROS error at weeks 3/6/9 to every step's report.~~ Done.
 3. ~~Build feature-tier variants and live tier selection.~~ Done this session (see above).
-4. ~~Same-sample head-to-head: trained model blend vs sleeper+espn on
+4. Same-sample head-to-head: trained model blend vs sleeper+espn on
    identical player-weeks. Wire the blend in as opt-in first; promote to
-   default only if it wins (decision 1).~~ Done this session. Wired `public_model_blend` as an opt-in via `--projection-source public_model_blend`. Added it to `backtest.py` to allow the user to run the head-to-head when their local market snapshots populate.
+   default only if it wins (decision 1).
 5. Wire the model's ROS distributions into trade, buy-low, drop valuation
    (currently those intents use other signals; no model ROS integration
    yet).

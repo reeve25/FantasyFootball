@@ -407,7 +407,7 @@ def worker(args):
                     else:
                         player["weekly_points_by_source"]["public_model_blend"] = {str(week): pts}
             current = a.select_projection_source(current, projection_source)
-            packet["public_model_inference"] = {
+            current["public_model_inference"] = {
                 "tier_applied": public_res.get("tier_applied"),
                 "freshness": public_res.get("freshness"),
                 "reason": public_res.get("reason"),
@@ -417,7 +417,7 @@ def worker(args):
                 f"{projection_source} inference failed/fallback: {public_res.get('reason')}"
             )
             # Fall back to existing sleeper+espn default if public_model fails
-            packet["public_model_inference"] = public_res
+            current["public_model_inference"] = public_res
     elif projection_source:
         current = a.select_projection_source(current, projection_source)
     packet = a.build_packet(question, current, explicit_trade=terms, live_context=live, include_market=False)
