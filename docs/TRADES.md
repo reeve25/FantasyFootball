@@ -23,11 +23,11 @@ explicit, deliberately-chosen alternative, not the normal lens.
    stale. Record scoring, starter slots, roster capacity, current NFL week,
    completed games, trade timing, byes, and material availability changes. A
    fresh fetch does not make an old provider forecast fresh.
-2. Open Flock's current-season **Redraft** rankings, verify PPR or other
-   scoring controls if exposed, and cover Reeve's outgoing assets plus the
-   opposing rosters' relevant QB/RB/WR/TE pool. Use full names and canonical
-   Sleeper IDs. Record ranks or values and actual coverage; do not call a
-   partial page view a league-wide scan or anchor on past-chat favorites.
+2. Use `--flock` to fetch Flock's current-season **Redraft** rankings and live
+   calculator values from its public web API with the league's PPR, size, and
+   starter settings. It maps canonical Sleeper IDs directly where possible and
+   records current expert-update timestamps. If the API is unavailable, the
+   result is unverified; do not silently substitute rank arithmetic.
 3. Build a shortlist from Flock price versus projected marginal starter value,
    source disagreement, and current role/usage. Screen across positions and
    price tiers before narrowing. A rank gap is a lead, not a points estimate;
@@ -94,16 +94,15 @@ conditional rather than claiming a robust win.
 
 ## Verify the exact Flock offer
 
-Use the live calculator for every finalist. Verify league/team orientation,
-current season, **Redraft**, and exposed scoring settings. Enter every player
-on the correct side and dismiss any selection preview. The first result can
-still be stale even after all selected-player chips are visible: Flock has
-shown **Fair Trade!** immediately and changed it on asynchronous recalculation.
-Take a subsequent state or screenshot after recalculation and confirm that
-terms, displayed values, and verdict remain stable before recording a pass.
-Record exact terms, verdict text, displayed values
-or balance-bar direction when available, URL, and observation time. Recheck
-after every package change; a prior verdict does not transfer to new terms.
+Use `ff.py trade ... --flock`, `ff.py packet ... --flock`, or
+`ff.py discover --flock` for every finalist. The integration calls Flock's
+public `/rankings` and `/trades/calculate` endpoints directly, sends outgoing
+players as `opponentReceives` and incoming players as `userReceives`, and
+mirrors the site's client thresholds exactly: at most 8.5% difference from the
+two-side midpoint is **Fair Trade!**. Record exact terms, ranks, displayed side
+values, verdict, expert update timestamps, and observation time. Recheck after
+every package change; a prior verdict does not transfer to new terms. Use the
+browser only as a fallback audit if the undocumented public endpoint changes.
 
 Only the final explicit **Fair Trade!** verdict passes Reeve's acceptance gate.
 The bar may lean either way. **You win!**, **They win!**, **You slightly win!**,

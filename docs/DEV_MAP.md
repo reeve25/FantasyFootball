@@ -14,6 +14,7 @@ whole files only when the task truly spans them.
 | Assumption blending and priced-in guard | `advisor_runtime/assumptions.py`: `apply`; `delta_table.py`: `compute_deltas`, `build_priced_in_guard` | `test_assumptions.py`, `test_delta_table.py` |
 | Backtest behavior and scored acceptance | `advisor_runtime/backtest.py`: `run_backtest`, `score_event_player`, `summarize`; `ff.py:worker` | `advisor_runtime/tests/test_backtest.py`, `tests/test_entrypoint.py` |
 | Trade discovery | `advisor_runtime/trade_search.py`: `discover` | `advisor_runtime/tests/test_trade_search.py` |
+| Flock rankings and Fair Trade validation | `advisor_runtime/flock.py`: `check_trade`, `fairness_verdict`; `ff.py:worker` | `advisor_runtime/tests/test_flock.py`, `tests/test_entrypoint.py` |
 | Legacy projection adapter only | `advisor_runtime/advisor.py:load_engine` identifies the narrow calls into `advisor_runtime/engine/ff_v6_3.py` | `tests/test_oracle_performance.py` plus the caller's focused tests |
 
 ## Do not open routinely

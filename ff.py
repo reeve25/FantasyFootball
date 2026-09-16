@@ -94,6 +94,8 @@ def parser():
                 ),
             )
         q.add_argument("--deep", action="store_true", help="Also use configured metered odds check")
+        if command in {"packet", "trade", "discover"}:
+            q.add_argument("--flock", action="store_true", help="Check Flock's live redraft trade values and Fair Trade! verdict")
         if command == "packet":
             q.add_argument("question", nargs="+")
         if command == "trade":
@@ -353,6 +355,22 @@ def worker(args):
     packet["market_status"] = "not_requested; use --market when it can change this decision"
     if packet.get("decision_report"):
         packet["decision_report"]["market_anchor"] = packet["market_status"]
+    if getattr(args, "flock", False) and terms:
+        from advisor_runtime.flock import check_trade
+        flock_result = check_trade(current, terms)
+        packet["flock_fairness"] = flock_result
+        if packet.get("decision_report"):
+            packet["decision_report"]["flock_fairness"] = flock_result
+        if flock_result.get("status") != "checked":
+            packet.setdefault("warnings", []).append(
+                "Flock Fair Trade! validation was requested but unavailable; "
+                "the offer remains unverified."
+            )
+        elif not flock_result.get("is_fair_trade"):
+            packet.setdefault("warnings", []).append(
+                f"Flock verdict is {flock_result.get('verdict')!r}, not "
+                "the required stable 'Fair Trade!' result."
+            )
     if projection_source or market_anchor_diagnostics is not None:
         packet["projection_source_requested"] = getattr(args, "projection_source", None)
         packet["projection_source_applied"] = projection_source
@@ -366,6 +384,20 @@ def worker(args):
     if args.command == "discover":
         from advisor_runtime.trade_search import discover
         packet = discover(current, manager=args.manager, limit=args.limit, max_candidates=args.candidates, mode=args.mode)
+        if getattr(args, "flock", False):
+            from advisor_runtime.flock import check_trade
+            for trade in packet.get("shortlist") or []:
+                trade["flock_fairness"] = check_trade(current, trade)
+            packet["actionable_trades"] = [
+                trade for trade in packet.get("shortlist") or []
+                if (trade.get("flock_fairness") or {}).get("is_fair_trade") is True
+            ]
+            if packet["actionable_trades"]:
+                packet["status"] = "flock_fair_shortlist"
+            else:
+                packet.setdefault("warnings", []).append(
+                    "No shortlisted offer returned Flock's exact Fair Trade! verdict."
+                )
         save(packet)
     market_refresh = getattr(args, "market_refresh", False)
     if (args.market or args.deep or market_refresh) and args.command != "discover":

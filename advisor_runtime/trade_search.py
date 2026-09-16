@@ -11,8 +11,8 @@ def discover(snapshot, manager=None, limit=3, max_candidates=66, mode="ours"):
     original screen, which also requires a non-negative counterparty delta
     and ranks by a blended ours+theirs score -- kept as an explicit
     alternative, e.g. when a mutually-agreeable-looking shortlist is wanted
-    on its own terms. Neither mode checks Flock; that remains a separate,
-    manual step (see docs/TRADES.md)."""
+    on its own terms. The public CLI can attach live Flock validation with
+    ``ff.py discover --flock``; this pure search function remains offline."""
     if mode not in ("ours", "mutual"):
         raise ValueError('mode must be "ours" or "mutual"')
     players = snapshot.get("players") or {}
@@ -121,7 +121,7 @@ def discover(snapshot, manager=None, limit=3, max_candidates=66, mode="ours"):
         "excluded": {"incomplete_projection_math": incomplete, negative_label: negative, "forced_drop_or_noncontributing_padding": padding},
         "source_freshness": a.evidence_freshness(snapshot),
         "warnings": [
-            "No offer is validated by this screen. Check current role/news and independent forecasts, then the exact stable current-year PPR Redraft Flock Fair Trade! verdict -- Flock, not the counterparty delta shown here, is the acceptance reference.",
+            "No offer is validated unless --flock returns the exact current-year PPR Redraft Flock Fair Trade! verdict. Flock, not the counterparty delta shown here, is the acceptance reference.",
             f"Fast search is bounded, uses up to two players per side, {criteria_note}. It can miss useful deals.",
             sort_note,
             "An empty shortlist means this screen found no candidate; it does not prove no good trade exists.",

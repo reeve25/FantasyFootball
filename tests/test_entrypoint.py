@@ -252,6 +252,43 @@ class EntrypointIntegrationTests(unittest.TestCase):
             self.assertEqual(saved["decision_report"]["min_ppg_shift_to_flip"], 0.75)
             self.assertEqual(saved["decision_report"]["weekly_ppg_impact"], 0.75)
 
+    def test_packet_flock_flag_attaches_live_fairness_evidence(self):
+        from advisor_runtime import advisor as a
+        from advisor_runtime import flock
+
+        snapshot = {
+            "players": {
+                "p1": {"pid": "p1", "name": "Drake London", "pos": "WR", "owner_roster_id": 9},
+                "p2": {"pid": "p2", "name": "Kenneth Walker", "pos": "RB", "owner_roster_id": 1},
+            },
+            "rosters": [
+                {"roster_id": 9, "manager": "Reeve", "player_ids": ["p1"]},
+                {"roster_id": 1, "manager": "Other", "player_ids": ["p2"]},
+            ],
+            "league": {"starter_slots": ["WR", "RB"], "current_week": 1},
+        }
+        flock_result = {
+            "status": "checked",
+            "verdict": "Fair Trade!",
+            "is_fair_trade": True,
+            "user_value": 50,
+            "opponent_value": 50,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "evidence.json"
+            with (
+                mock.patch.dict(os.environ, {"FF_CHECKPOINT": str(checkpoint)}),
+                mock.patch.object(a, "load_snapshot", return_value=snapshot),
+                mock.patch.object(a, "_sync_live", return_value=snapshot),
+                mock.patch.object(a, "evaluate_trade", return_value={"perspective_delta_pg": 1.0, "perspective_playoff_delta_pg": 1.0, "min_ppg_shift_to_flip": 1.0}),
+                mock.patch.object(flock, "check_trade", return_value=flock_result),
+                mock.patch.dict(a.CONFIG),
+            ):
+                ff.worker(ff.parser().parse_args(["packet", "Kenneth Walker for Drake London?", "--offline", "--flock"]))
+            saved = json.loads(checkpoint.read_text(encoding="utf-8"))
+            self.assertEqual(saved["flock_fairness"], flock_result)
+            self.assertEqual(saved["decision_report"]["flock_fairness"], flock_result)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,9 @@ old rosters, prior-chat targets, or stale names in this document.
 
 Run `python ff.py packet "the actual question"` once. For an explicit offer use
 `python ff.py trade --give "Full Name" --get "Full Name"`, repeating give/get
-for multiple players. Preserve the user's direction; ask only if ambiguous.
+for multiple players. Add `--flock` to attach Flock's live current-season
+Redraft ranks, calculator values, balancing suggestions, and exact verdict.
+Preserve the user's direction; ask only if ambiguous.
 Use `--for-manager` for a friend's perspective. Use dedicated `lineup`,
 `rankings`, `movers`, or `transactions` when applicable. `status` is offline.
 Reeve should not need to operate a terminal.
@@ -51,7 +53,8 @@ must be separate. Two sites sharing one forecast are one forecasting origin;
 market-adjusted baselines are not independent second models. Do not invent
 calibrated confidence percentages or manager acceptance probabilities.
 
-For discovery read docs/TRADES.md. `ff.py discover` (default `--mode ours`)
+For discovery read docs/TRADES.md. `ff.py discover --flock` (default
+`--mode ours`)
 makes a bounded research shortlist using the same calculator, ranked by
 Reeve's own modeled lineup gain; it is not an exhaustive search or a list to
 send. The trade objective is improving Reeve's own team under credible
@@ -63,7 +66,8 @@ extra justification for an offer. `--mode mutual` keeps the older screen
 e.g. when a mutually-agreeable-looking shortlist is wanted on its own terms —
 use it deliberately, not as the default lens. No bench padding used to
 disguise an offer's true cost, though. No manager psychology inferred from
-sparse history beyond what they've actually stated. Flock is the
+sparse history beyond what they've actually stated. Flock's public web API is
+the
 acceptance/market-value reference, not ground truth on player performance or
 a forecast. Finalist offers need the complete,
 stable, current-year PPR Redraft **Fair Trade!** verdict and supported lineup
