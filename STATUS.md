@@ -22,8 +22,14 @@ not a session log. Use `git log` and focused component docs for history.
 - T2 through T7 and T9 are complete. T2b passed against real settled Week 1
   players; T6 added line/projection deltas and the anti-double-count guard;
   T7 conversational trade routing defects fixed (dynamically resolving third-party trades, removing prose from decision report, removing duplicate sensitivity key). T9 fixed discovery tie-break and contribution defects. QBs market_anchor projection vastly improved by including pass_td and rush_yd. T10 added conversational intents for surplus/buy-low/sell-high.
-- The full offline suite passes: 196 runtime tests plus 35 outer integration
-  tests (231 total). Real acceptance check `python ff.py packet "Kenneth Walker
+- The 2021-2025 point-in-time public-model scorecard is available through
+  `python ff.py model-scorecard`. It scores 25,903 player-weeks in exact league
+  scoring, retains ffopportunity, nflverse usage/participation/NGS/FTN signals,
+  historical FantasyPros ECR, and fitted matchup shrinkage, and writes the
+  measured report to `docs/model_scorecard.json` plus a trained XGBoost artifact
+  under `advisor_runtime/models/`. Implied team totals were measured and removed.
+- The full offline suite passes: 201 runtime tests plus 35 outer integration
+  tests (236 total). Real acceptance check `python ff.py packet "Kenneth Walker
   for Drake London?" --offline --flock` PASS with live Flock ranks, values,
   suggestions, and exact `You win!` verdict evidence.
 
@@ -38,17 +44,21 @@ not a session log. Use `git log` and focused component docs for history.
   weights have deliberately not been fitted yet.
 - T8 risk-aware decisions remains intentionally deferred until several weeks of
   scored data exist.
+- The trained historical public model is not yet a live weekly projection source;
+  current-season inference still needs a point-in-time 2026 feature-row builder.
+  Historical player props and ffanalytics archives remain unmeasured for the
+  explicit reasons recorded in `docs/model_scorecard.json`.
 - No real curated assumption entries exist yet; current assumption tests use
   fixtures. The T6 any-book rule and 3.0-unit movement threshold remain
   explicitly provisional.
 
 ## Active objective
 
-T10 (conversational trade intents) is complete. Three new intents route
-through classify_intent: roster_surplus_trade_away (marginal lineup utility),
-buy_low_targets, and sell_high_targets. Buy-low/sell-high currently provide
-league roster context with integrated real-world volume metrics (snap share,
-target share); surplus computes real per-player marginal PPG.
+The historical public-model scorecard is complete through steps 1-6. The final
+walk-forward model improves weekly MAE from 5.2023 to 4.7099, rank correlation
+from 0.5559 to 0.6097, and holds 80% interval coverage at 0.8055. The next
+independent objective is live 2026 inference from the retained feature set,
+without silently substituting unavailable current-week inputs.
 
 ## Validation and handoff
 
