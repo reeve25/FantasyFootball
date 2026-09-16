@@ -164,12 +164,14 @@ def worker(args):
         focus = [current["players"][pid] for pid in set(terms["give_ids"] + terms["get_ids"])] if terms else a.match_players(question, current)
         if focus:
             from advisor_runtime.market_sources import focused_market_packet
-            packet["market_evidence"] = focused_market_packet(
+            market = focused_market_packet(
                 focus,
                 deep=args.deep,
                 force_refresh=market_refresh,
                 projection_universe=list((current.get("players") or {}).values()),
             )
+            packet["market_evidence"] = market
+            packet.setdefault("warnings", [])[:0] = market.get("coverage_warnings") or []
             packet["market_status"] = "checked; inspect source coverage and timestamps"
             save(packet)
 

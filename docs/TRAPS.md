@@ -60,6 +60,25 @@ pricing a trade.
   treating it as missing data. Either way, a comparison where one side has
   market data and the other doesn't is not on a common basis — drop --market so
   both sit on projections, or treat the gap as unpriced.
+- The two row shapes in a market-history JSONL file do not and cannot share an
+  id namespace. Line rows carry SportsGameOdds's own playerID
+  ("CAMERON_WARD_1_NFL", stable across fetches for the same real person, but
+  provider-internal and opaque). Projection rows carry the engine's Sleeper
+  pid ("12522"). There is no third ID that both systems already agree on, so
+  joining a line row to "the same player's" projection row is always a name
+  join, never an id join: normalize_name() plus advisor_runtime/name_aliases.json
+  (nicknames, dropped generational suffixes, provider misspellings) on the
+  provider's raw name, matched against the engine's own display name. Do not
+  try to "fix" this by writing one id onto the other row type — the two
+  registries have no shared key to write. A provider payload can also omit a
+  player's name entirely (seen for KENNY_PICKETT_1_NFL — the event's players
+  map had a playerID and teamID but no name/firstName/lastName at all); that
+  case has nothing to alias from and will always show as unresolved_no_match
+  in focused_market_packet's resolution_status, correctly, not a bug to chase.
+  normalize_name() drops apostrophes and periods outright (not to a space) so
+  "De'Von"/"Devon" and "O.J."/"OJ" fold together; a name mismatch that
+  survives that is a nickname, a suffix, or a real provider typo, and belongs
+  in name_aliases.json, not in normalize_name.
 
 ## Performance
 

@@ -65,9 +65,51 @@ NFL_TEAMS = {
 }
 
 
+# Dropped outright rather than turned into a word break: an apostrophe or
+# period inside a name is punctuation, not a word boundary. "De'Von" and
+# "O.J." must fold to "devon" and "oj" to match a provider spelling that
+# simply omits them ("Devon", "OJ") -- turning them into spaces instead
+# leaves an extra token ("de von") that never matches. Curly-quote variants
+# never reach here: NFKD + ascii-encode already drops anything non-ASCII.
+_NAME_JOIN_STRIP = str.maketrans("", "", "'`.")
+
+
 def normalize_name(value: str) -> str:
     text = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    text = text.translate(_NAME_JOIN_STRIP)
     return " ".join("".join(ch if ch.isalnum() else " " for ch in text.lower()).split())
+
+
+NAME_ALIASES_PATH = Path(__file__).resolve().parent / "name_aliases.json"
+
+
+def load_name_aliases() -> dict[str, str]:
+    """Map a provider name spelling to the engine's canonical spelling.
+
+    Covers what punctuation normalization can't: nicknames vs legal names
+    ("Cam Ward" / "Cameron Ward"), dropped generational suffixes ("Travis
+    Etienne" / "Travis Etienne Jr."), and provider misspellings. Both sides
+    are stored raw in the data file and normalized here, so the file reads
+    as plain names, not regex. Keyed and valued by ``normalize_name`` output;
+    callers resolve a raw name by normalizing it and looking it up here,
+    falling back to the normalized form itself when there's no entry.
+    """
+    try:
+        raw = json.loads(NAME_ALIASES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    aliases: dict[str, str] = {}
+    for entry in raw.get("aliases") or []:
+        provider_key = normalize_name(str(entry.get("provider_name") or ""))
+        engine_key = normalize_name(str(entry.get("engine_name") or ""))
+        if provider_key and engine_key:
+            aliases[provider_key] = engine_key
+    return aliases
+
+
+def resolve_provider_name(raw_name: str, aliases: dict[str, str]) -> str:
+    key = normalize_name(raw_name)
+    return aliases.get(key, key)
 
 
 def _number(value: Any) -> float | None:
@@ -167,10 +209,13 @@ def _write_sports_game_odds_snapshot(
 
     The two row shapes do not share an id namespace: line rows carry the
     provider's playerID ("CAMERON_WARD_1_NFL"), projection rows the engine's
-    pid ("1"). They are bridged on ``normalize_name`` of the provider's own
-    event players map -- the same join ``sports_game_odds`` uses at read time,
-    so the gate keeps exactly the players a reader could later match.
+    pid ("1"). They are bridged on ``resolve_provider_name`` (normalize_name
+    plus the ``name_aliases.json`` lookup) of the provider's own event players
+    map -- the same join ``sports_game_odds`` uses at read time, so the gate
+    keeps exactly the players a reader could later match. See docs/TRAPS.md
+    for why the id namespaces can never simply be unified.
     """
+    aliases = load_name_aliases()
     rows: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     provider_names: dict[str, str] = {}
     for event in payload.get("data") or []:
@@ -191,7 +236,7 @@ def _write_sports_game_odds_snapshot(
             provider = event_players.get(odd.get("playerID")) or {}
             provider_names.setdefault(
                 player_id,
-                normalize_name(
+                resolve_provider_name(
                     str(
                         provider.get("name")
                         or " ".join(
@@ -199,7 +244,8 @@ def _write_sports_game_odds_snapshot(
                             for part in (provider.get("firstName"), provider.get("lastName"))
                             if part
                         )
-                    )
+                    ),
+                    aliases,
                 ),
             )
             for book, raw in (odd.get("byBookmaker") or {}).items():
@@ -335,6 +381,7 @@ def sports_game_odds(
     api_key = secrets.get("SPORTSGAMEODDS_API_KEY")
     if not api_key:
         return {"status": "missing_key", "source": "SportsGameOdds", "players": {}}
+    aliases = load_name_aliases()
     wanted = {normalize_name(str(player.get("name") or "")) for player in players}
     wanted.discard("")
     odd_ids = ",".join(
@@ -379,6 +426,13 @@ def sports_game_odds(
 
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
     meta: dict[tuple[str, str], dict[str, Any]] = {}
+    # Every player the provider names under a supported market this fetch,
+    # over side or not, valid book line or not -- independent of ``wanted``
+    # and of whether a book actually posted a usable line. This is the
+    # "did the provider say anything at all about this player" signal that
+    # focused_market_packet needs to tell "no match" apart from "matched,
+    # game already locked" apart from "never had a market source problem."
+    provider_identity: dict[str, str] = {}
     for event in payload.get("data") or []:
         event_players = event.get("players") or {}
         matchup = " @ ".join(
@@ -403,7 +457,9 @@ def sports_game_odds(
                 player.get("name")
                 or " ".join(part for part in (player.get("firstName"), player.get("lastName")) if part)
             )
-            key = normalize_name(player_name)
+            key = resolve_provider_name(player_name, aliases)
+            if stat:
+                provider_identity.setdefault(key, str(odd.get("playerID")))
             if not stat or key not in wanted:
                 continue
             books = []
@@ -477,6 +533,7 @@ def sports_game_odds(
         "line_snapshot": line_snapshot,
         "refreshed_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "players": result,
+        "provider_identity": provider_identity,
     }
 
 
@@ -692,6 +749,78 @@ def underdog(players: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _previous_snapshot_path(current_path: Path) -> Path | None:
+    """The file immediately older than ``current_path`` in the history dir.
+
+    Filenames start with the fetch's UTC stamp, so lexical sort is chronological
+    sort. Returns None for the very first snapshot, or if ``current_path`` isn't
+    present (a caller passed something outside MARKET_HISTORY_DIR).
+    """
+    files = sorted(MARKET_HISTORY_DIR.glob("*.jsonl"))
+    try:
+        index = files.index(current_path)
+    except ValueError:
+        return None
+    return files[index - 1] if index > 0 else None
+
+
+def _line_row_player_ids(path: Path) -> set[str]:
+    """Provider player_ids with at least one posted line row in ``path``."""
+    ids: set[str] = set()
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for raw_line in handle:
+                try:
+                    row = json.loads(raw_line)
+                except ValueError:
+                    continue
+                if row.get("row_type") == "line":
+                    ids.add(str(row.get("player_id")))
+    except OSError:
+        return set()
+    return ids
+
+
+def _player_resolution_status(
+    player: dict[str, Any],
+    *,
+    sportsbook: dict[str, Any] | None,
+    provider_id: str | None,
+    previous_line_ids: set[str] | None,
+) -> dict[str, Any]:
+    """Never let a focused player's market evidence go silently missing.
+
+    Three failure classes, each independently visible rather than folded into
+    a single ok/not-ok flag: the provider never named this player at all
+    (unresolved_no_match); the provider named them but the engine has no
+    projection to react to sportsbook evidence with (resolved_no_projection);
+    and the provider named them and posted lines for them last fetch but
+    posted none this fetch (lost_book_coverage) -- a real market event (game
+    locked, prop pulled, status change), not silence to be mistaken for "no
+    signal." None (not False) marks "not checked," e.g. no prior snapshot
+    exists yet or this call was a cache hit with nothing new to compare.
+    """
+    resolved = provider_id is not None
+    has_projection = _number(player.get("live_week_projection")) is not None
+    has_lines_now = bool(sportsbook)
+    lost_coverage: bool | None = None
+    if resolved and previous_line_ids is not None:
+        lost_coverage = provider_id in previous_line_ids and not has_lines_now
+    flags = []
+    if not resolved:
+        flags.append("unresolved_no_match")
+    elif not has_projection:
+        flags.append("resolved_no_projection")
+    if lost_coverage:
+        flags.append("lost_book_coverage")
+    return {
+        "resolved": resolved,
+        "has_projection": has_projection,
+        "lost_book_coverage_since_previous_snapshot": lost_coverage,
+        "flags": flags,
+    }
+
+
 def focused_market_packet(
     players: list[dict[str, Any]],
     deep: bool = False,
@@ -703,15 +832,38 @@ def focused_market_packet(
         players, force_refresh=force_refresh, projection_universe=projection_universe
     )
     validator = the_odds_api(players, enabled=deep)
+    identity = primary.get("provider_identity") or {}
+    previous_line_ids: set[str] | None = None
+    snapshot_info = primary.get("line_snapshot") or {}
+    if snapshot_info.get("status") == "written" and snapshot_info.get("path"):
+        previous_path = _previous_snapshot_path(Path(snapshot_info["path"]))
+        if previous_path is not None:
+            previous_line_ids = _line_row_player_ids(previous_path)
     by_player: dict[str, Any] = {}
+    coverage_warnings: list[str] = []
     for player in players:
-        key = normalize_name(str(player.get("name") or ""))
+        name = str(player.get("name") or "")
+        key = normalize_name(name)
         sportsbook = primary.get("players", {}).get(key)
-        by_player[str(player.get("name") or key)] = {
+        resolution_status = _player_resolution_status(
+            player,
+            sportsbook=sportsbook,
+            provider_id=identity.get(key),
+            previous_line_ids=previous_line_ids,
+        )
+        if "lost_book_coverage" in resolution_status["flags"]:
+            coverage_warnings.append(
+                f"Lost sportsbook coverage: {name or key} had posted lines in "
+                "the previous market-history snapshot and has none in this "
+                "fetch. Treat this as a signal (game locked, book pulled the "
+                "prop, or a status change) -- never as a zero or as silence."
+            )
+        by_player[name or key] = {
             "sportsbooks": sportsbook,
             "projection_update": market_projection_update(
                 player, sportsbook
             ),
+            "resolution_status": resolution_status,
             "pickem_boards": {
                 "status": "manual_browser_on_request",
                 "reason": (
@@ -729,6 +881,7 @@ def focused_market_packet(
             "the_odds_api": validator.get("status"),
         },
         "players": by_player,
+        "coverage_warnings": coverage_warnings,
     }
 
 

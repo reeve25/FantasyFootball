@@ -1,0 +1,22 @@
+{
+  "_description": "Provider (SportsGameOdds) player-name spellings that do not match the engine's Sleeper canonical name after normalize_name(). Both provider_name and engine_name are run through normalize_name() at lookup time, so exact casing/spacing/punctuation here does not matter -- only the underlying words do. Seeded 2026-09-12 from the 17 of 372 lined players unmatched by name in one live fetch. One of those 17, De'Von Achane, needed no alias: normalize_name's punctuation hardening (apostrophes/periods dropped, not turned into a word break) resolves 'Devon Achane' to 'De'Von Achane' on its own. The remaining 16 are seeded here, one nickname/legal-name mismatch (Chigoziem Okonokwo -> Chig Okonkwo) doubling as a provider misspelling ('Okonokwo' vs the correct 'Okonkwo').",
+  "aliases": [
+    {"provider_name": "Andrew Ogletree", "engine_name": "Drew Ogletree", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Benjamin Yurosek", "engine_name": "Ben Yurosek", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Cameron Skattebo", "engine_name": "Cam Skattebo", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Cameron Ward", "engine_name": "Cam Ward", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Chigoziem Okonokwo", "engine_name": "Chig Okonkwo", "class": "provider_typo"},
+    {"provider_name": "Chris Rodriguez Jr.", "engine_name": "Chris Rodriguez", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Jacory Merritt", "engine_name": "Jacory Croskey-Merritt", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Jo'Quavious Marks", "engine_name": "Woody Marks", "class": "legal_name_vs_common_name"},
+    {"provider_name": "John Metchie III", "engine_name": "John Metchie", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Josh Palmer", "engine_name": "Joshua Palmer", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Kenneth Walker III", "engine_name": "Kenneth Walker", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Marvin Harrison Jr.", "engine_name": "Marvin Harrison", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Marvin Mims Jr.", "engine_name": "Marvin Mims", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Matthew Hibner", "engine_name": "Matt Hibner", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Odell Beckham Jr.", "engine_name": "Odell Beckham", "class": "legal_name_vs_common_name"},
+    {"provider_name": "Travis Etienne Jr.", "engine_name": "Travis Etienne", "class": "legal_name_vs_common_name"},
+    {"provider_name": "J.Michael Sturdivant", "engine_name": "J. Michael Sturdivant", "class": "provider_typo", "note": "Found in a later verification fetch, not one of the original 17 -- provider dropped the space after the period."}
+  ]
+}

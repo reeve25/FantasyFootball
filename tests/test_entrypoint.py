@@ -75,6 +75,37 @@ class EntrypointIntegrationTests(unittest.TestCase):
                 {"Drake London", "Bench Guy"},
             )
 
+    def test_lost_book_coverage_warning_is_surfaced_in_the_saved_packet(self):
+        from advisor_runtime import advisor as a
+        from advisor_runtime import market_sources
+        player = {"name": "Drake London"}
+        snapshot = {"players": {"player": player}, "rosters": [], "league": {}}
+        coverage_warning = (
+            "Lost sportsbook coverage: Drake London had posted lines in the "
+            "previous market-history snapshot and has none in this fetch."
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "evidence.json"
+            with (
+                mock.patch.dict(os.environ, {"FF_CHECKPOINT": str(checkpoint)}),
+                mock.patch.object(a, "load_snapshot", return_value=snapshot),
+                mock.patch.object(a, "_sync_live", return_value=snapshot),
+                mock.patch.object(a, "build_packet", return_value={"status": "ok", "warnings": ["unrelated"]}),
+                mock.patch.object(a, "match_players", return_value=[player]),
+                mock.patch.object(a, "focused_expert_packet"),
+                mock.patch.dict(a.CONFIG),
+                mock.patch.object(market_sources, "focused_market_packet", return_value={
+                    "line_snapshot": {"status": "written"},
+                    "coverage_warnings": [coverage_warning],
+                }),
+            ):
+                ff.worker(ff.parser().parse_args([
+                    "packet", "Show sportsbook lines for Drake London", "--offline", "--market",
+                ]))
+            saved = json.loads(checkpoint.read_text())
+            self.assertEqual(saved["warnings"][0], coverage_warning)
+            self.assertIn("unrelated", saved["warnings"])
+
     def test_selftest_runs_both_directories_and_preserves_failure(self):
         results = [subprocess.CompletedProcess([], 1), subprocess.CompletedProcess([], 0)]
         with mock.patch.object(ff.subprocess, "run", side_effect=results) as run:
