@@ -21,7 +21,7 @@ not a session log. Use `git log` and focused component docs for history.
   `docs/backtest/summary.json`.
 - T2 through T7 and T9 are complete. T2b passed against real settled Week 1
   players; T6 added line/projection deltas and the anti-double-count guard;
-  T7 conversational trade routing defects fixed (dynamically resolving third-party trades, removing prose from decision report, removing duplicate sensitivity key). T9 fixed discovery tie-break and contribution defects. QBs market_anchor projection vastly improved by including pass_td and rush_yd.
+  T7 conversational trade routing defects fixed (dynamically resolving third-party trades, removing prose from decision report, removing duplicate sensitivity key). T9 fixed discovery tie-break and contribution defects. QBs market_anchor projection vastly improved by including pass_td and rush_yd. T10 added conversational intents for surplus/buy-low/sell-high.
 - The full offline suite passes: 194 runtime tests plus 34 outer integration
   tests (228 total). Real acceptance check `python ff.py packet "Kenneth Walker
   for Drake London?" --offline` PASS.
@@ -39,8 +39,11 @@ not a session log. Use `git log` and focused component docs for history.
 
 ## Active objective
 
-No ticket is active. T7 is complete. Do not start T8 or new intents without a
-new explicit objective.
+T10 (conversational trade intents) is complete. Three new intents route
+through classify_intent: roster_surplus_trade_away (marginal lineup utility),
+buy_low_targets, and sell_high_targets. Buy-low/sell-high currently provide
+league roster context with an honest warning that structural volume metrics
+are not yet automated; surplus computes real per-player marginal PPG.
 
 ## Validation and handoff
 
