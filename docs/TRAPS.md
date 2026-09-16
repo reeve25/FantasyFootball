@@ -144,3 +144,31 @@ The Windows KB5124008 sandbox break (Sept 2026) is resolved: uninstalling the
 update restored the device_bash mount. Windows updates are paused until
 mid-October 2026 — the KB reinstalls when they resume and will break the mount
 again.
+
+## Ticket workflow
+
+- A ticket assigned as a build task (T2, T3, ...) is answered with working
+  code and a run acceptance check, never a gap-analysis table, a
+  what-exists-vs-what's-missing comparison, or a plan in place of the
+  deliverable. If a ticket turns out to be already partly done, say so and
+  finish the remainder in code; analysis is not a substitute result. See
+  AGENTS.md's Ticket work section and docs/TICKETS.md's session-end rule:
+  a session only counts once the check has actually run, changes are
+  committed, and STATUS.md has a dated entry.
+
+## Forecasting
+
+- Do not adjust a market-anchored projection for news the market has already
+  repriced. If a delta-table check (docs/TICKETS.md T6) shows a line already
+  moved on the same news item, the market has priced it — adding an
+  assumption-delta for the same news double-counts it. See the
+  anti-double-count rule in docs/FORECASTING.md.
+- A betting line's point threshold (e.g., a 74.5 receiving-yards prop) is not
+  automatically the expected/mean value for that stat. The threshold plus its
+  two-sided price is what implies a mean — de-vig both sides to get one.
+  Reading the raw line as "the projection" and ignoring price silently
+  substitutes a threshold for an expectation. This gap exists in the current
+  component-adjustment code (`market_projection_update` in
+  advisor_runtime/market_sources.py substitutes `projection_line`/
+  `consensus_line` directly, with no de-vig step) — do not repeat it in new
+  code built for docs/TICKETS.md T2.
