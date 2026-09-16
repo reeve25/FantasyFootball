@@ -301,6 +301,30 @@
         "weekly_ecr_range": 0.6542,
         "weekly_ecr_sd": 0.6542
       },
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "ngs_rec_separation_roll3",
+        "ngs_rec_yac_oe_roll3",
+        "ngs_rush_ryoe_pa_roll3",
+        "ngs_pass_cpoe_roll3",
+        "ftn_motion_rate_roll3",
+        "ftn_play_action_rate_roll3",
+        "ftn_catchable_rate_roll3",
+        "ftn_drop_rate_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
       "interval_80_coverage": 0.8056,
       "interval_mean_width": 14.8631,
       "kept": true,
@@ -326,6 +350,140 @@
         "9": 2.7943
       },
       "season_wins": 5
+    }
+  },
+  "tiers": {
+    "full": {
+      "coverage": {
+        "weekly_ecr": 0.6542,
+        "weekly_ecr_range": 0.6542,
+        "weekly_ecr_sd": 0.6542
+      },
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "ngs_rec_separation_roll3",
+        "ngs_rec_yac_oe_roll3",
+        "ngs_rush_ryoe_pa_roll3",
+        "ngs_pass_cpoe_roll3",
+        "ftn_motion_rate_roll3",
+        "ftn_play_action_rate_roll3",
+        "ftn_catchable_rate_roll3",
+        "ftn_drop_rate_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
+      "interval_80_coverage": 0.8056,
+      "interval_mean_width": 14.8631,
+      "kept": true,
+      "mae": 4.7101,
+      "mae_by_position": {
+        "QB": 6.1918,
+        "RB": 4.7043,
+        "TE": 3.6591,
+        "WR": 4.7906
+      },
+      "mae_by_season": {
+        "2021": 4.8988,
+        "2022": 4.6897,
+        "2023": 4.5951,
+        "2024": 4.7065,
+        "2025": 4.6613
+      },
+      "mean_weekly_rank_correlation": 0.6096,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.762,
+        "6": 2.7325,
+        "9": 2.7943
+      },
+      "season_wins": 5
+    },
+    "no_ftn_ngs": {
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
+      "interval_80_coverage": 0.8079,
+      "interval_mean_width": 14.9163,
+      "mae": 4.7076,
+      "mae_by_position": {
+        "QB": 6.187,
+        "RB": 4.7038,
+        "TE": 3.6576,
+        "WR": 4.7869
+      },
+      "mae_by_season": {
+        "2021": 4.891,
+        "2022": 4.686,
+        "2023": 4.5926,
+        "2024": 4.7098,
+        "2025": 4.6595
+      },
+      "mean_weekly_rank_correlation": 0.6101,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.7661,
+        "6": 2.7219,
+        "9": 2.7985
+      }
+    },
+    "opp_ecr": {
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
+      "interval_80_coverage": 0.8068,
+      "interval_mean_width": 14.9092,
+      "mae": 4.7211,
+      "mae_by_position": {
+        "QB": 6.1704,
+        "RB": 4.7237,
+        "TE": 3.6799,
+        "WR": 4.801
+      },
+      "mae_by_season": {
+        "2021": 4.913,
+        "2022": 4.6994,
+        "2023": 4.5996,
+        "2024": 4.7241,
+        "2025": 4.6704
+      },
+      "mean_weekly_rank_correlation": 0.6067,
+      "n": 25903,
+      "ros_mae_at_checkpoint": {
+        "3": 2.7663,
+        "6": 2.7213,
+        "9": 2.8121
+      }
     }
   }
 }

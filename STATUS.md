@@ -47,9 +47,8 @@ not a session log. Use `git log` and focused component docs for history.
   weights have deliberately not been fitted yet.
 - T8 risk-aware decisions remains intentionally deferred until several weeks of
   scored data exist.
-- The trained historical public model is not yet a live weekly projection source;
-  current-season inference still needs a point-in-time 2026 feature-row builder.
-  Historical player props and ffanalytics archives remain unmeasured for the
+- Live 2026 inference for the public model is implemented via feature-tier variants (`full`, `no_ftn_ngs`, `opp_ecr`), which dynamically drop down to the richest available tier depending on current-week data availability. A fallback is explicitly surfaced if foundational `ffopportunity` data is missing.
+- Historical player props and ffanalytics archives remain unmeasured for the
   explicit reasons recorded in `docs/model_scorecard.json`.
 - No real curated assumption entries exist yet; current assumption tests use
   fixtures. The T6 any-book rule and 3.0-unit movement threshold remain
@@ -57,11 +56,7 @@ not a session log. Use `git log` and focused component docs for history.
 
 ## Active objective
 
-The historical public-model scorecard is complete through steps 1-6. The final
-walk-forward model improves weekly MAE from 5.2023 to 4.7099, rank correlation
-from 0.5559 to 0.6097, and holds 80% interval coverage at 0.8055. The next
-independent objective is live 2026 inference from the retained feature set,
-without silently substituting unavailable current-week inputs.
+Task 3 (feature-tier variants and live tier selection) is complete. The next independent objective is Task 4: same-sample head-to-head comparison of the trained public model blend vs sleeper+espn on identical player-weeks, wiring the blend in as opt-in first.
 
 ## Validation and handoff
 

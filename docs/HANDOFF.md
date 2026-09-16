@@ -98,14 +98,34 @@ scoring), and the new field is populated for every structural source
    (4.7065 -> 4.7078 per-season MAE) for a negligible aggregate gain
    (4.7101 -> 4.7099). Do not re-add without new held-out evidence.
 
+## Task 3: Feature-Tier Variants and Live Inference (done this session)
+
+Implemented three feature tiers to handle incomplete live data during the season:
+1. `full`: The final selected features (base + xfpo + structural + consensus).
+2. `no_ftn_ngs`: Full features minus FTN charting and NGS metrics.
+3. `opp_ecr`: Only ffopportunity and consensus ECR features.
+
+**Tier performance (2021-2025 walk-forward):**
+| Tier | Weekly MAE | Rank Corr | 80% Coverage | ROS MAE (pts/game) @3/6/9 |
+|---|---|---|---|---|
+| full | 4.7101 | 0.6096 | 0.8056 | 2.7620 / 2.7325 / 2.7943 |
+| no_ftn_ngs | 4.7076 | 0.6101 | 0.8079 | 2.7661 / 2.7219 / 2.7985 |
+| opp_ecr | 4.7211 | 0.6067 | 0.8068 | 2.7663 / 2.7213 / 2.8121 |
+
+*Note: ROS MAE is measured in units of absolute points per game error.*
+
+**Live Inference & Fallback Strategy:**
+At inference time (`ff.py public-inference` and injected into `packet` when `--projection-source public_model` is requested), we build a point-in-time feature row for the requested week. 
+- The inference logic (`select_tier` in `public_inference.py`) dynamically checks which features are present.
+- It selects the richest tier whose features are fully present.
+- **ffopportunity missing:** For 2026 weeks the ffopportunity release hasn't covered (e.g. week 2), *none* of our model tiers can be run. We cannot rebuild expected points from current play-by-play (pbp) ourselves because the underlying `nflverse` ffopportunity XGBoost model and its preprocessing pipeline are not available in `nflreadpy` or our codebase. In this case, inference correctly identifies the missing data, aborts public model evaluation with an explicit error reason, and the `packet` falls back.
+- The packet JSON includes a `public_model_inference` block labeling the `tier_applied`, `freshness`, and `reason`.
+
 ## Task list
 
-1. ~~Remove matchup shrinkage.~~ Done (prior session).
-2. ~~Add ROS error at weeks 3/6/9 to every step's report.~~ Done this
-   session (see above) — added to the one place it was missing.
-3. Build feature-tier variants (full / no-FTN-NGS / opportunity+ECR-only)
-   and live tier selection at inference based on which features exist for
-   the current week.
+1. ~~Remove matchup shrinkage.~~ Done.
+2. ~~Add ROS error at weeks 3/6/9 to every step's report.~~ Done.
+3. ~~Build feature-tier variants and live tier selection.~~ Done this session (see above).
 4. Same-sample head-to-head: trained model blend vs sleeper+espn on
    identical player-weeks. Wire the blend in as opt-in first; promote to
    default only if it wins (decision 1).
@@ -113,5 +133,4 @@ scoring), and the new field is populated for every structural source
    (currently those intents use other signals; no model ROS integration
    yet).
 
-Next prompt: pick up Task 3 (feature-tier variants + live tier selection)
-fresh, reading this file and `docs/model_scorecard.json` first.
+Next prompt: pick up Task 4 (Same-sample head-to-head).

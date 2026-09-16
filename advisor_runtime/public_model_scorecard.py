@@ -188,7 +188,11 @@ def _snap_features(seasons: Iterable[int]) -> pd.DataFrame:
 
 
 def _participation_features(seasons: Iterable[int]) -> pd.DataFrame:
-    frame = _to_pandas(nfl.load_participation(list(seasons)))
+    try:
+        frame = _to_pandas(nfl.load_participation(list(seasons)))
+    except ValueError:
+        # e.g., Season must be between 2016 and 2025
+        return pd.DataFrame(columns=["season", "week", "posteam", "player_id", "pass_play_participation"])
     game_parts = frame["nflverse_game_id"].astype(str).str.split("_", expand=True)
     frame["season"] = pd.to_numeric(game_parts[0], errors="coerce")
     frame["week"] = pd.to_numeric(game_parts[1], errors="coerce")
@@ -330,22 +334,74 @@ def _rolling_features(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
-def build_feature_table(force: bool = False) -> pd.DataFrame:
+def build_feature_table(force: bool = False, inference_season: int | None = None, inference_week: int | None = None) -> pd.DataFrame:
     cache_path = CACHE_DIR / "public_features_v1.parquet"
-    if cache_path.exists() and not force:
+    
+    # Fast path for historical runs
+    if cache_path.exists() and not force and inference_season is None:
         return pd.read_parquet(cache_path)
+        
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    base = _base_frame(DATA_SEASONS)
-    implied, cutoffs = _schedule_features(DATA_SEASONS)
-    base = base.merge(implied, on=["season", "week", "posteam"], how="left")
-    base = base.merge(_player_stats_features(DATA_SEASONS), on=["player_id", "season", "week"], how="left")
-    base = base.merge(_snap_features(DATA_SEASONS), on=["season", "week", "posteam", "norm_name"], how="left")
-    base = base.merge(_participation_features(DATA_SEASONS), on=["season", "week", "posteam", "player_id"], how="left")
-    base = base.merge(_nextgen_features(DATA_SEASONS), on=["season", "week", "player_id"], how="left")
-    base = base.merge(_ftn_features(DATA_SEASONS), on=["season", "week", "game_id"], how="left")
-    base = base.merge(_ranking_features(cutoffs), on=["season", "week", "norm_name"], how="left")
+    
+    if inference_season is not None:
+        # For live inference, load the historical cache (must exist) and append the live season
+        if not cache_path.exists():
+            raise RuntimeError("Missing historical cache. Run model-scorecard first.")
+        historical = pd.read_parquet(cache_path)
+        # Drop the live season if it was somehow in the cache to avoid duplicates
+        historical = historical[historical["season"] != inference_season].copy()
+        
+        live_base = _base_frame([inference_season])
+        implied, cutoffs = _schedule_features([inference_season])
+        live_base = live_base.merge(implied, on=["season", "week", "posteam"], how="left")
+        live_base = live_base.merge(_player_stats_features([inference_season]), on=["player_id", "season", "week"], how="left")
+        live_base = live_base.merge(_snap_features([inference_season]), on=["season", "week", "posteam", "norm_name"], how="left")
+        live_base = live_base.merge(_participation_features([inference_season]), on=["season", "week", "posteam", "player_id"], how="left")
+        live_base = live_base.merge(_nextgen_features([inference_season]), on=["season", "week", "player_id"], how="left")
+        live_base = live_base.merge(_ftn_features([inference_season]), on=["season", "week", "game_id"], how="left")
+        live_base = live_base.merge(_ranking_features(cutoffs), on=["season", "week", "norm_name"], how="left")
+        
+        # Combine historical + live before rolling
+        base = pd.concat([historical, live_base], ignore_index=True)
+    else:
+        # Full historical rebuild
+        base = _base_frame(DATA_SEASONS)
+        implied, cutoffs = _schedule_features(DATA_SEASONS)
+        base = base.merge(implied, on=["season", "week", "posteam"], how="left")
+        base = base.merge(_player_stats_features(DATA_SEASONS), on=["player_id", "season", "week"], how="left")
+        base = base.merge(_snap_features(DATA_SEASONS), on=["season", "week", "posteam", "norm_name"], how="left")
+        base = base.merge(_participation_features(DATA_SEASONS), on=["season", "week", "posteam", "player_id"], how="left")
+        base = base.merge(_nextgen_features(DATA_SEASONS), on=["season", "week", "player_id"], how="left")
+        base = base.merge(_ftn_features(DATA_SEASONS), on=["season", "week", "game_id"], how="left")
+        base = base.merge(_ranking_features(cutoffs), on=["season", "week", "norm_name"], how="left")
+    
+    if inference_season is not None and inference_week is not None:
+        # Append dummy rows for the inference week so .shift(1) can roll prior data into them
+        active_players = base[base["season"] == inference_season]["player_id"].unique()
+        if len(active_players) == 0:
+            # Fallback if season hasn't started in ffopportunity
+            active_players = base["player_id"].unique()
+        
+        last_known = base.drop_duplicates("player_id", keep="last").set_index("player_id")
+        dummy = pd.DataFrame({
+            "season": inference_season,
+            "week": inference_week,
+            "player_id": active_players,
+            "actual_points": np.nan,
+            "expected_points": np.nan,
+            "td_gap": np.nan,
+        })
+        dummy["full_name"] = dummy["player_id"].map(last_known["full_name"])
+        dummy["norm_name"] = dummy["player_id"].map(last_known["norm_name"])
+        dummy["position"] = dummy["player_id"].map(last_known["position"])
+        dummy["posteam"] = dummy["player_id"].map(last_known["posteam"])
+        dummy["posteam"] = dummy["player_id"].map(last_known["posteam"])
+        base = pd.concat([base, dummy], ignore_index=True)
+        
     base = _rolling_features(base)
-    base.to_parquet(cache_path, index=False)
+    
+    if inference_season is None:
+        base.to_parquet(cache_path, index=False)
     return base
 
 
@@ -529,7 +585,7 @@ def _season_wins(candidate: dict[str, Any], incumbent: dict[str, Any]) -> int:
     return sum(candidate["mae_by_season"][season] < incumbent["mae_by_season"][season] for season in seasons)
 
 
-def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, list[str]]:
+def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, dict[str, list[str]]]:
     frame = _eligible(build_feature_table(force=force))
     ros_frame = build_ros_frame(frame)
     steps: dict[str, Any] = {}
@@ -580,6 +636,16 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
     steps["5_consensus_ecr"]["season_wins"] = consensus_wins
     steps["5_consensus_ecr"]["kept"] = consensus_kept
     final_features = step5_features if consensus_kept else step4_features
+
+    tier_features = {
+        "full": final_features,
+        "no_ftn_ngs": [
+            f for f in final_features 
+            if f not in STRUCTURAL_GROUPS.get("nextgen_stats", [])
+            and f not in STRUCTURAL_GROUPS.get("ftn_charting", [])
+        ],
+        "opp_ecr": XFPO_FEATURES + (CONSENSUS_FEATURES if consensus_kept else [])
+    }
 
     current_engine = None
     summary_path = ROOT.parent / "docs" / "backtest" / "summary.json"
@@ -639,30 +705,81 @@ def run_scorecard(force: bool = False) -> tuple[dict[str, Any], pd.DataFrame, li
         },
         "final_features": final_features,
         "final_step": "5_consensus_ecr" if consensus_kept else "4_structural_usage",
+        "tiers": {},
     }
-    return report, frame, final_features
+    
+    # Avoid duplicate scoring for 'full'
+    final_step_name = "5_consensus_ecr" if consensus_kept else "4_structural_usage"
+    report["tiers"]["full"] = steps[final_step_name]
+    
+    for tier, features in tier_features.items():
+        if tier == "full":
+            continue
+        report["tiers"][tier] = score_feature_set(frame, ros_frame, features)
+
+    for tier, features in tier_features.items():
+        report["tiers"][tier]["features"] = features
+
+    return report, frame, tier_features
 
 
-def train_final_model(frame: pd.DataFrame, features: list[str], report: dict[str, Any]) -> None:
+def train_final_model(frame: pd.DataFrame, tier_features: dict[str, list[str]], report: dict[str, Any]) -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    model = _model()
-    matrix = _matrix(frame, features)
-    model.fit(matrix, frame["actual_points"])
-    model.save_model(DEFAULT_MODEL)
-    walk_forward = walk_forward_predictions(frame, features)
-    residuals = np.abs(walk_forward["prediction"] - walk_forward["actual_points"])
-    interval_by_position = {
-        position: float(np.quantile(residuals[walk_forward["position"].to_numpy() == position], 0.80))
-        for position in POSITIONS
-    }
     metadata = {
         "trained_through_season": int(frame["season"].max()),
-        "features": features,
-        "matrix_columns": list(matrix.columns),
-        "interval_radius_80_by_position": interval_by_position,
         "scorecard_final_step": report["final_step"],
+        "tiers": {},
     }
+    
+    for tier_name, features in tier_features.items():
+        model = _model()
+        matrix = _matrix(frame, features)
+        model.fit(matrix, frame["actual_points"])
+        
+        # Save each tier model
+        model_path = MODEL_DIR / f"public_projection_xgb_{tier_name}.json"
+        model.save_model(model_path)
+        
+        walk_forward = walk_forward_predictions(frame, features)
+        residuals = np.abs(walk_forward["prediction"] - walk_forward["actual_points"])
+        interval_by_position = {
+            position: float(np.quantile(residuals[walk_forward["position"].to_numpy() == position], 0.80))
+            for position in POSITIONS
+        }
+        metadata["tiers"][tier_name] = {
+            "features": features,
+            "matrix_columns": list(matrix.columns),
+            "interval_radius_80_by_position": interval_by_position,
+        }
+
+    # For backwards compatibility with other files reading DEFAULT_MODEL (like a test), 
+    # we copy the full tier to the default model path.
+    import shutil
+    shutil.copyfile(MODEL_DIR / "public_projection_xgb_full.json", DEFAULT_MODEL)
+    metadata["features"] = tier_features["full"]
+    metadata["matrix_columns"] = metadata["tiers"]["full"]["matrix_columns"]
+    metadata["interval_radius_80_by_position"] = metadata["tiers"]["full"]["interval_radius_80_by_position"]
+
     DEFAULT_METADATA.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+def select_tier(available_columns: set[str], tiers: dict[str, dict[str, Any]]) -> tuple[str | None, str | None]:
+    """Return (tier_name, reason) based on what features are actually available.
+    
+    Tiers must be defined in the metadata passed in.
+    """
+    # 2026 ffopportunity release delay fallback:
+    # Rebuilding expected points from current pbp is not feasible because the
+    # underlying nflverse ffopportunity XGBoost model and its preprocessing
+    # pipeline are not available in nflreadpy or our codebase.
+    if "opp_ecr" in tiers and not set(tiers["opp_ecr"]["features"]).issubset(available_columns):
+        return None, "ffopportunity features (xfp_roll3, etc) are missing; rebuilding from pbp requires unavailable upstream models"
+    if "full" in tiers and set(tiers["full"]["features"]).issubset(available_columns):
+        return "full", None
+    if "no_ftn_ngs" in tiers and set(tiers["no_ftn_ngs"]["features"]).issubset(available_columns):
+        return "no_ftn_ngs", None
+    if "opp_ecr" in tiers:
+        return "opp_ecr", None
+    return None, "no matching tier"
 
 
 def main() -> int:

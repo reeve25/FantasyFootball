@@ -85,6 +85,10 @@ def parser():
         action="store_true",
         help="Rebuild the cached nflverse feature table before scoring",
     )
+    public_inference = sub.add_parser("public-inference", help="Test live tier selection and 2026 inference")
+    public_inference.add_argument("--season", type=int, default=2026)
+    public_inference.add_argument("--week", type=int, required=True)
+    
     for command in ("packet", "trade", "lineup", "rankings", "movers", "transactions", "discover"):
         q = sub.add_parser(command)
         q.add_argument("--offline", action="store_true")
@@ -93,7 +97,7 @@ def parser():
             q.add_argument("--market-refresh", action="store_true", help="Fetch SportsGameOdds now, bypassing its 10-minute cache; implies --market")
             q.add_argument(
                 "--projection-source",
-                choices=["sleeper", "espn", "market_anchor", "blend"],
+                choices=["sleeper", "espn", "market_anchor", "blend", "public_model"],
                 help=(
                     "Evaluate on one projection source instead of the "
                     "existing sleeper+espn default. market_anchor/blend "
@@ -178,6 +182,12 @@ def worker(args):
             "steps": report["steps"],
         })
         return
+    if args.command == "public-inference":
+        from advisor_runtime.public_inference import run_inference
+        result = run_inference(args.season, args.week)
+        save(result)
+        return 0
+
     if args.command == "backtest":
         from advisor_runtime import backtest as b
         from advisor_runtime.sleeper_live import fetch_live_context
@@ -376,7 +386,32 @@ def worker(args):
                 "not be applied for this run."
             )
             projection_source = None
-    if projection_source:
+    if projection_source == "public_model":
+        from advisor_runtime.public_inference import run_inference
+        # For public model, we need to inject its projections into players
+        # and attach its tier/freshness metadata
+        season = int((current.get("league") or {}).get("season") or 2026)
+        week = int((current.get("league") or {}).get("current_week") or 1)
+        public_res = run_inference(season, week)
+        
+        if public_res.get("status") == "success":
+            for pid, player in current.get("players", {}).items():
+                if pid in public_res["projections"]:
+                    pts = public_res["projections"][pid]["pts"]
+                    player.setdefault("weekly_points_by_source", {})["public_model"] = {"1": pts}
+            current = a.select_projection_source(current, "public_model")
+            packet["public_model_inference"] = {
+                "tier_applied": public_res.get("tier_applied"),
+                "freshness": public_res.get("freshness"),
+                "reason": public_res.get("reason"),
+            }
+        else:
+            current.setdefault("runtime_warnings", []).append(
+                f"public_model inference failed/fallback: {public_res.get('reason')}"
+            )
+            # Fall back to existing sleeper+espn default if public_model fails
+            packet["public_model_inference"] = public_res
+    elif projection_source:
         current = a.select_projection_source(current, projection_source)
     packet = a.build_packet(question, current, explicit_trade=terms, live_context=live, include_market=False)
     packet["market_status"] = "not_requested; use --market when it can change this decision"
@@ -475,11 +510,11 @@ def main(argv=None):
         return 0
     timeout = args.timeout if args.timeout is not None else (
         600 if args.command == "model-scorecard"
-        else 120 if args.command in {"refresh", "selftest", "backtest"}
+        else 120 if args.command in {"refresh", "selftest", "backtest", "public-inference"}
         else 45
     )
-    if not 0 < timeout <= 600:
-        raise SystemExit("--timeout must be greater than 0 and at most 600 seconds")
+    if not 0 < timeout <= 1800:
+        raise SystemExit("--timeout must be greater than 0 and at most 1800 seconds")
     if args.command == "selftest":
         deadline = time.monotonic() + timeout
         test_result = 0

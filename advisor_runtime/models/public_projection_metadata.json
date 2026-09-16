@@ -58,5 +58,143 @@
     "pos_TE"
   ],
   "scorecard_final_step": "5_consensus_ecr",
+  "tiers": {
+    "full": {
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "ngs_rec_separation_roll3",
+        "ngs_rec_yac_oe_roll3",
+        "ngs_rush_ryoe_pa_roll3",
+        "ngs_pass_cpoe_roll3",
+        "ftn_motion_rate_roll3",
+        "ftn_play_action_rate_roll3",
+        "ftn_catchable_rate_roll3",
+        "ftn_drop_rate_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
+      "interval_radius_80_by_position": {
+        "QB": 9.806933509826663,
+        "RB": 7.349767875671389,
+        "TE": 5.567776355743408,
+        "WR": 7.367568740844726
+      },
+      "matrix_columns": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "ngs_rec_separation_roll3",
+        "ngs_rec_yac_oe_roll3",
+        "ngs_rush_ryoe_pa_roll3",
+        "ngs_pass_cpoe_roll3",
+        "ftn_motion_rate_roll3",
+        "ftn_play_action_rate_roll3",
+        "ftn_catchable_rate_roll3",
+        "ftn_drop_rate_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range",
+        "pos_QB",
+        "pos_RB",
+        "pos_WR",
+        "pos_TE"
+      ]
+    },
+    "no_ftn_ngs": {
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
+      "interval_radius_80_by_position": {
+        "QB": 9.807091751098634,
+        "RB": 7.3412376213073784,
+        "TE": 5.585548286437989,
+        "WR": 7.364021244049071
+      },
+      "matrix_columns": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "target_share_roll3",
+        "air_yards_share_roll3",
+        "wopr_roll3",
+        "racr_roll3",
+        "snap_share_roll3",
+        "pass_play_participation_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range",
+        "pos_QB",
+        "pos_RB",
+        "pos_WR",
+        "pos_TE"
+      ]
+    },
+    "opp_ecr": {
+      "features": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range"
+      ],
+      "interval_radius_80_by_position": {
+        "QB": 9.715434974670414,
+        "RB": 7.316320610046391,
+        "TE": 5.636793937683111,
+        "WR": 7.409973945617676
+      },
+      "matrix_columns": [
+        "actual_roll3",
+        "career_actual_prior",
+        "xfp_roll3",
+        "career_xfp_prior",
+        "td_gap_roll3",
+        "weekly_ecr",
+        "weekly_ecr_sd",
+        "weekly_ecr_range",
+        "pos_QB",
+        "pos_RB",
+        "pos_WR",
+        "pos_TE"
+      ]
+    }
+  },
   "trained_through_season": 2025
 }
