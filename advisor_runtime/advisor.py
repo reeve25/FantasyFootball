@@ -236,6 +236,55 @@ def _projection_for_week(player: dict[str, Any], week: int) -> tuple[float | Non
     return None, "missing"
 
 
+# T4 projection-source switch. "sleeper" here means the Sleeper feed alone,
+# distinct from the existing default (player["weekly_points"], already a
+# sleeper+espn average) -- selecting a source never runs through this
+# average. "blend" is the T3 assumption-registry blend on top of the T2
+# market anchor, not a synonym for the existing sleeper+espn average.
+PROJECTION_SOURCES = ("sleeper", "espn", "market_anchor", "blend")
+_PROJECTION_SOURCE_KEYS = {
+    "sleeper": "sleeper_projection_feed",
+    "espn": "espn",
+    "market_anchor": "market_anchor",
+    "blend": "market_anchor_blend",
+}
+
+
+def select_projection_source(
+    snapshot: dict[str, Any], source: str
+) -> dict[str, Any]:
+    """Return a snapshot copy whose players use one weekly_points_by_source
+    entry as weekly_points -- T4's projection-source switch.
+
+    This reuses, rather than parallels, the substitution evaluate_trade's own
+    independent_projection_checks already performs for "espn" and
+    "sleeper_projection_feed" below: the ticket's "same interface." No
+    existing function (_projection_for_week, optimize_lineup, _roster_average,
+    _legalize_roster, evaluate_trade) is modified to add this switch, so
+    default behavior -- never calling this function -- is provably unchanged.
+    See STATUS.md's T4 Decision Log entry for why this mechanism was chosen
+    over threading a projection_source parameter through all five functions.
+    A player missing the requested source gets an empty weekly_points, which
+    _projection_for_week already reports as "missing," never a zero.
+    """
+    if source not in PROJECTION_SOURCES:
+        raise ValueError(
+            f"Unknown projection source {source!r}; expected one of {PROJECTION_SOURCES}"
+        )
+    key = _PROJECTION_SOURCE_KEYS[source]
+    updated = dict(snapshot)
+    updated["players"] = {
+        pid: {
+            **player,
+            "weekly_points": dict(
+                (player.get("weekly_points_by_source") or {}).get(key) or {}
+            ),
+        }
+        for pid, player in (snapshot.get("players") or {}).items()
+    }
+    return updated
+
+
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(

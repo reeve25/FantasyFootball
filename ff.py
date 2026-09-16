@@ -76,6 +76,17 @@ def parser():
             q.add_argument("--for-manager")
             q.add_argument("--for-roster-id", type=int)
             q.add_argument("--effective-week", type=int)
+            q.add_argument(
+                "--projection-source",
+                choices=["sleeper", "espn", "market_anchor", "blend"],
+                help=(
+                    "Evaluate on one projection source instead of the "
+                    "existing sleeper+espn default. market_anchor/blend "
+                    "fetch fresh sportsbook lines for the traded players and "
+                    "are unvalidated pending T2b (see STATUS.md); omitting "
+                    "this flag leaves existing behavior unchanged."
+                ),
+            )
         if command == "discover":
             q.add_argument("--manager")
             q.add_argument("--limit", type=int, default=3)
@@ -152,8 +163,60 @@ def worker(args):
             "transactions": "Show the most recent completed trades and transactions",
             "discover": "Find trade targets across the league",
         }[args.command]
+    projection_source = getattr(args, "projection_source", None)
+    market_anchor_diagnostics = None
+    market_anchor_attribution = None
+    if args.command == "trade" and projection_source in ("market_anchor", "blend"):
+        # T4: fetch fresh lines for only the traded players and compute the
+        # T2 anchor + T3 blend, injected additively into
+        # weekly_points_by_source. Never touches players["weekly_points"]
+        # directly -- select_projection_source below does that, and only for
+        # the players/sources it is asked to use.
+        from advisor_runtime.market_anchor_projection import (
+            compute_projection_sources,
+            inject_projection_sources,
+        )
+        from advisor_runtime.market_sources import read_snapshot_rows, sports_game_odds
+
+        involved_ids = sorted(set(terms["give_ids"] + terms["get_ids"]))
+        focus = [current["players"][pid] for pid in involved_ids]
+        fetch = sports_game_odds(focus, force_refresh=True)
+        snapshot_info = fetch.get("line_snapshot") or {}
+        if snapshot_info.get("status") == "written" and snapshot_info.get("path"):
+            line_rows = [
+                row for row in read_snapshot_rows(snapshot_info["path"])
+                if row.get("row_type") == "line"
+            ]
+            anchor_players = [
+                {"pid": pid, "name": current["players"][pid].get("name"), "pos": current["players"][pid].get("pos")}
+                for pid in involved_ids
+            ]
+            result = compute_projection_sources(
+                line_rows,
+                players=anchor_players,
+                scoring=(current.get("league") or {}).get("scoring_settings") or {},
+            )
+            current["players"] = inject_projection_sources(current["players"], result["sources"])
+            market_anchor_diagnostics = result["diagnostics"]
+            market_anchor_attribution = result["attribution"]
+        else:
+            current.setdefault("runtime_warnings", []).append(
+                f"market_anchor/blend requested but no fresh sportsbook snapshot was written "
+                f"(status: {snapshot_info.get('status')!r}); the projection-source switch could "
+                "not be applied for this run."
+            )
+            projection_source = None
+    if projection_source:
+        current = a.select_projection_source(current, projection_source)
     packet = a.build_packet(question, current, explicit_trade=terms, live_context=live, include_market=False)
     packet["market_status"] = "not_requested; use --market when it can change this decision"
+    if projection_source or market_anchor_diagnostics is not None:
+        packet["projection_source_requested"] = getattr(args, "projection_source", None)
+        packet["projection_source_applied"] = projection_source
+        if market_anchor_diagnostics is not None:
+            packet["market_anchor_diagnostics"] = market_anchor_diagnostics
+        if market_anchor_attribution is not None:
+            packet["assumption_attribution"] = market_anchor_attribution
     save(packet)
     if args.command == "discover":
         from advisor_runtime.trade_search import discover

@@ -708,6 +708,44 @@ class TradeSafetyTests(unittest.TestCase):
         self.assertEqual(result["my_forced_drops"], [])
         self.assertEqual(result["their_forced_drops"], [])
 
+    def test_injected_market_anchor_source_surfaces_through_the_existing_interface(self):
+        """T4: evaluate_trade needs no changes to report a new source.
+
+        Injecting a "market_anchor" key into weekly_points_by_source is the
+        entire wiring mechanism (see advisor.select_projection_source and
+        STATUS.md's T4 Decision Log). This proves it two ways: the unmodified
+        evaluate_trade's own independent_projection_checks discovers the new
+        source on its own, and select_projection_source's substitution for
+        the *primary* basis reproduces that same independent-check result
+        exactly.
+        """
+        snapshot = self._three_week_trade_snapshot()
+        # Distinct from the existing weekly_points so the injected source is
+        # unambiguously the one being measured, not a coincidental match.
+        snapshot["players"]["give"]["weekly_points_by_source"] = {
+            "market_anchor": {"1": 5.0, "3": 5.0}
+        }
+        snapshot["players"]["get"]["weekly_points_by_source"] = {
+            "market_anchor": {"1": 20.0, "3": 20.0}
+        }
+        terms = self._two_for_one_terms()
+
+        result = advisor.evaluate_trade(snapshot, terms)
+        self.assertIn("market_anchor", result["independent_projection_checks"])
+        via_default_call = result["independent_projection_checks"]["market_anchor"]
+
+        primary = advisor.evaluate_trade(
+            advisor.select_projection_source(snapshot, "market_anchor"),
+            terms,
+            source_checks=False,
+        )
+        for field in ("perspective_delta_pg", "counterparty_delta_pg"):
+            self.assertEqual(primary[field], via_default_call[field])
+        # And it actually reflects the injected numbers, not the untouched default.
+        self.assertNotEqual(
+            via_default_call["perspective_delta_pg"], result["perspective_delta_pg"]
+        )
+
     def test_incomplete_drop_objective_preserves_premium_asset(self):
         snapshot = self._three_week_trade_snapshot(reserve_slots=0)
         snapshot["players"]["kicker"] = _player(
