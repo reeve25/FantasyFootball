@@ -221,6 +221,21 @@ def _write_sports_game_odds_snapshot(
     for event in payload.get("data") or []:
         event_id = str(event.get("eventID") or "")
         event_players = event.get("players") or {}
+        # Preserve provider observations, not a week inferred from fetch time.
+        # Nested additive metadata keeps the existing line/projection contract.
+        event_metadata = {
+            "sport_id": event.get("sportID"),
+            "league_id": event.get("leagueID"),
+            "season_week": (event.get("info") or {}).get("seasonWeek"),
+            "status": dict(event.get("status") or {}),
+            "teams": {
+                side: {
+                    "team_id": ((event.get("teams") or {}).get(side) or {}).get("teamID"),
+                    "names": dict((((event.get("teams") or {}).get(side) or {}).get("names") or {})),
+                }
+                for side in ("home", "away")
+            },
+        }
         for odd in (event.get("odds") or {}).values():
             market = SPORTS_GAME_ODDS_STATS.get(str(odd.get("statID") or ""))
             side = str(odd.get("sideID") or "")
@@ -234,6 +249,9 @@ def _write_sports_game_odds_snapshot(
                 continue
             player_id = str(odd["playerID"])
             provider = event_players.get(odd.get("playerID")) or {}
+            raw_player_name = str(provider.get("name") or " ".join(
+                part for part in (provider.get("firstName"), provider.get("lastName")) if part
+            ))
             provider_names.setdefault(
                 player_id,
                 resolve_provider_name(
@@ -264,6 +282,8 @@ def _write_sports_game_odds_snapshot(
                     "line": line,
                     "price": _number(raw.get("odds")),
                     "fetched_at_utc": fetched_at_utc,
+                    "player_name": raw_player_name or None,
+                    "event_metadata": event_metadata,
                 }
     lined_names = {provider_names.get(row["player_id"], "") for row in rows.values()}
     lined_names.discard("")

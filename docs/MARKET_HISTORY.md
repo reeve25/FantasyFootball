@@ -7,6 +7,23 @@ overwritten or pruned. Keep this directory when clearing disposable caches.
 
 Each file mixes two row shapes, distinguished by `row_type`.
 
+T2c (2026-09-12), new writes only: line rows additionally preserve
+`player_name` (raw provider name, or firstName/lastName joined; null if absent)
+and `event_metadata`. The latter contains `sport_id`, `league_id`,
+`season_week` (raw `info.seasonWeek`, e.g. "Week 1"), `status` (the provider's
+status object, including `startsAt`, reschedule history and settlement flags),
+and `teams.home` / `teams.away` with `team_id` and `names`.
+The existing `event_id` remains the join key. No old fields or row types change;
+projection rows are unchanged. Old snapshots are not backfilled.
+
+These fields were observed in the actual SGO payload, so no slate-week or
+kickoff inference is used. Missing fields stay null/empty, not fabricated from
+the projection week (one fetch can span multiple weeks). `status.completed`,
+`ended` and `finalized` describe the event at fetch time; a pregame snapshot
+must be joined to a later settlement source to establish final results.
+Kickoff time is distinct from fetch time and line publication time. Unknown
+fields remain safe for existing field-selecting readers to ignore.
+
 `row_type: "line"` rows contain `source`, `event_id`, `player_id`, `book`,
 `market`, `side`, `line`, `price`, and `fetched_at_utc`. Player IDs are
 **SportsGameOdds IDs**, not Sleeper IDs. Market names use the engine's stat
@@ -73,7 +90,8 @@ This is a raw observation log, not a delta table: comparing rows across fetches
 is a read-time job for later tooling.
 
 `fetched_at_utc` is recorded by the engine immediately after a successful HTTP
-response is decoded. No feed timestamp is read or stored by the history writer.
+response is decoded. No line-publication timestamp is stored by the history writer;
+T2c event kickoff/reschedule timestamps are stored separately in event metadata.
 This is the time the engine obtained the response, not a claim about when the
 provider or book updated the line. Cache hits create no new snapshot.
 

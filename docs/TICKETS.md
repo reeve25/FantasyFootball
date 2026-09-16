@@ -19,6 +19,12 @@ T2a (2026-09-12): conditional offline converter implemented; eight new unit
 tests pass through `ff.py selftest`. See docs/MARKET_ANCHOR.md for assumptions
 and supported inputs. T2 remains incomplete until T2b passes.
 
+T2c (2026-09-12): user-authorized prerequisite before T2b, completed. New line
+rows retain provider player names and event time/week/team/status metadata
+additively. Existing snapshots untouched. Run selftests and a real fresh-write
+metadata check before committing as "T2c". This sequencing explicitly overrides
+the one-ticket session default for the user's T2c-then-T2b request.
+
 T2b: obtain verified identity/event metadata, team-total allocations and
 closing-reference/final-box-score evidence for three players in one settled
 week; run the original numerical acceptance below and refine the converter
