@@ -69,3 +69,28 @@ it.
 
 docs/TRAPS.md and USER_GUIDE.md are committed at 4006853; the Cowork status
 entry at 3fcc0a1.
+
+## 2026-09-11 — Cowork run of `lineup --market` (17:55 UTC)
+
+Requested from Cowork. device_bash was dead (VM failed to start) and computer
+use grants terminals click-only, so the engine could not be run on the laptop.
+Ran instead in the Cowork cloud container against a staged copy of the folder:
+all four pinned deps were already present, so ff.py ran, but api.sleeper.app
+and api.sportsgameodds.com are both 403 at the container proxy and the market
+keys live outside the repo. Result: stale snapshot, no live league, no market.
+
+Two findings, both recorded in docs/TRAPS.md:
+
+- `--market` does nothing on `lineup`. The canned question carries no player
+  names, so match_players returns empty and the market call is skipped while
+  market_status still reads "not_requested". Verified the other direction:
+  `packet "Is Jaxon Smith-Njigba a start this week" --market` did reach the
+  provider and returned sports_game_odds=missing_key from the container.
+- The device sandbox broke again and computer use cannot reach a shell.
+
+Engine output (snapshot 07:49 UTC, 606 min old; Sleeper feed 05:23 UTC and
+ESPN 05:24 UTC, both flagged stale): submitted starters in the snapshot are
+identical to the optimizer's lineup, so no lineup change was indicated.
+Known subtotal 122.72 over 8 of 10 slots; Jake Bates and Jacksonville DEF
+carry no projection (missing, not zero), so projected_total is null.
+Nothing about this run establishes current injury status.
