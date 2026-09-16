@@ -147,7 +147,7 @@ class UnmodeledScoringComponentsTests(unittest.TestCase):
 
     def test_empty_when_league_scores_none_of_them(self):
         players = [{"pid": "1", "pos": "TE"}]
-        self.assertEqual(unmodeled_scoring_components({"rec_yd": 0.1}, players), {})
+        self.assertEqual(unmodeled_scoring_components({"rec_yd": 0.1, "pass_td": 4.0}, players), {})
 
 
 def te_rows():
@@ -179,18 +179,18 @@ def rec_row(line=4.5, event_id="e1", player_id="SGO1"):
     ]
 
 
-TE_SCORING = {"rec_yd": .1}
+TE_SCORING = {"rec_yd": .1, "pass_td": 4.0}
 TE_SD = {("12522", 3, "rec_yd"): 30}
 # 74.5 yards at -110/-110: no-vig mean is exactly the line.
 TE_EXPECTED_ANCHOR = 74.5 * .1
-TE_SCORING_WITH_TD = {"rec_yd": .1, "rush_td": 6.0, "rec_td": 6.0}
+TE_SCORING_WITH_TD = {"rec_yd": .1, "rush_td": 6.0, "rec_td": 6.0, "pass_td": 4.0}
 # Full PPR: 1 point per reception. Receptions are a count stat (Poisson
 # model, like touchdowns), NOT a yardage stat -- the "-110/-110 implies
 # mean == line" shortcut only holds for the normal-approximation yardage
 # model above; a symmetric price does not imply mean == line for Poisson
 # (its median and mean differ), so the expected value is taken from the
 # real function, the same way td_row's own expected value is computed below.
-TE_SCORING_WITH_REC = {"rec_yd": .1, "rec": 1.0}
+TE_SCORING_WITH_REC = {"rec_yd": .1, "rec": 1.0, "pass_td": 4.0}
 TE_EXPECTED_REC_FP = stat_distribution(4.5, -110, -110)["mean"] * 1.0
 
 

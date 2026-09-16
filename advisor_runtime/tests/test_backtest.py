@@ -63,7 +63,7 @@ def write_snapshot(directory: Path, name: str, rows: list[dict]) -> Path:
 
 
 ENGINE_PLAYERS = [{"pid": "999", "name": "Test TE", "pos": "TE"}]
-SCORING = {"rec_yd": 0.1}
+SCORING = {"rec_yd": 0.1, "pass_td": 4.0}
 
 
 class ScanPreKickoffEventsTests(unittest.TestCase):
@@ -186,7 +186,7 @@ class ScoreEventPlayerTests(unittest.TestCase):
             [line_row("over", -110), line_row("under", -110), td_line],
         )
         event_info = {"snapshot_path": path, "season_week": 3, "event_id": "evt1"}
-        scoring = {"rec_yd": 0.1, "rush_td": 6.0, "rec_td": 6.0}
+        scoring = {"rec_yd": 0.1, "rush_td": 6.0, "rec_td": 6.0, "pass_td": 4.0}
         realized = {"999": {"played": True, "stats": {"rec_yd": 60.0, "rush_td": 1, "rec_td": 1}}}
         record = backtest.score_event_player(
             "evt1", event_info, self.player, scoring=scoring, realized=realized,

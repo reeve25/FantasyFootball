@@ -45,7 +45,7 @@ class MarketAnchorTests(unittest.TestCase):
     def convert(self, rows=None, **changes):
         options = dict(provider_names={"SGO": "Cameron Ward"}, event_weeks={"e": 1},
                        players=[{"pid": "12522", "name": "Cam Ward"}],
-                       scoring={"rec_yd": .1}, required_stats={"12522": ["rec_yd"]},
+                       scoring={"rec_yd": .1, "pass_td": 4.0}, required_stats={"12522": ["rec_yd"]},
                        yardage_sd={("12522", 1, "rec_yd"): 30})
         options.update(changes)
         return convert_snapshot(self.rows() if rows is None else rows, **options)
@@ -96,7 +96,7 @@ class MarketAnchorTests(unittest.TestCase):
             with self.assertRaises(ValueError): stat_distribution(line, over, -110, sd=30)
 
     def test_missing_component_is_not_zero(self):
-        row = self.convert(scoring={"rec_yd": .1, "rec": 1},
+        row = self.convert(scoring={"rec_yd": .1, "rec": 1, "pass_td": 4.0},
                            required_stats={"12522": ["rec_yd", "rec"]})["rows"]["12522", 1]
         self.assertIsNone(row["anchor_fp"])
         self.assertEqual(row["missing_stats"], ["rec"])
@@ -148,7 +148,7 @@ class ConvertSnapshotOptionalTdTests(unittest.TestCase):
     def convert(self, rows, **changes):
         options = dict(provider_names={"SGO": "Cameron Ward"}, event_weeks={"e": 1},
                        players=[{"pid": "12522", "name": "Cam Ward"}],
-                       scoring={"rec_yd": .1, "td": 6.0},
+                       scoring={"rec_yd": .1, "td": 6.0, "pass_td": 4.0},
                        required_stats={"12522": ["rec_yd"]},
                        optional_stats={"12522": ["td"]},
                        yardage_sd={("12522", 1, "rec_yd"): 30})
@@ -195,7 +195,7 @@ class ConvertSnapshotOptionalTdTests(unittest.TestCase):
     def test_backward_compatible_default_has_no_optional_stats(self):
         row = convert_snapshot(
             self.yardage_rows(), provider_names={"SGO": "Cameron Ward"}, event_weeks={"e": 1},
-            players=[{"pid": "12522", "name": "Cam Ward"}], scoring={"rec_yd": .1},
+            players=[{"pid": "12522", "name": "Cam Ward"}], scoring={"rec_yd": .1, "pass_td": 4.0},
             required_stats={"12522": ["rec_yd"]}, yardage_sd={("12522", 1, "rec_yd"): 30},
         )["rows"]["12522", 1]
         self.assertEqual(row["optional_missing"], [])
