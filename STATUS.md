@@ -138,3 +138,26 @@ No offer sent. Nothing here is a negotiation in progress; Reeve has not
 contacted baran222. Player status per the Sleeper API only, at Reeve's
 direction for this evaluation: Odunze Questionable (leg); Walker, London and
 Montgomery all Active with no designation. No reporting was used.
+
+## 2026-09-11 — London talks with roster 1 closed, no deal
+
+Reported by Reeve. Counterparty roster 1, Pukkake Gang (baran222).
+
+- Talks ended with no trade. Nothing is pending or open with this manager.
+- They wanted Drake London and offered Emeka Egbuka plus a lesser piece.
+- They floated Kenneth Walker III in conversation but never formally offered
+  him. Treat Walker as unpriced talk, not an offer that was on the table.
+- Roster shape confirmed on both sides of the table: they are WR-rich and
+  RB-poor. Any future package that sends them WRs for RBs is fighting that
+  gradient; RB-for-Walker shapes are the ones that fit it.
+
+Superseded by this entry: the exploratory numbers in the earlier 2026-09-11
+23:00 UTC evaluation entry were priced before this outcome was known. They
+remain valid as engine output, but no offer from them was ever live.
+
+Environment, recorded again here because it changes what can be run from
+Cowork: the Cowork sandbox now reaches api.sleeper.app and PyPI, scipy
+installs, and the full engine runs there — selftest and a live-roster trade
+both completed. Details and the superseded traps are in the 23:00 UTC entry
+above and in docs/TRAPS.md. Egress has not been stable across sessions;
+re-test rather than assuming it.
