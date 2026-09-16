@@ -1146,7 +1146,7 @@ def _sync_live(
     for player_id, player in (snapshot.get("players") or {}).items():
         cell = dict(player)
         metadata = metadata_map.get(str(player_id)) or {}
-        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent", "snap_share_pct", "target_share_pct", "xFP", "td_regression_signal"):
+        for field in ("injury_status", "injury_body_part", "status", "team", "game_date", "opponent", "snap_share_pct", "target_share_pct"):
             if field in metadata:
                 cell[field] = metadata[field]
         owner_id = owner_map.get(str(player_id))
@@ -1969,9 +1969,7 @@ def _trade_target_roster_table(
         "status",
         "bye_weeks",
         "snap_share_pct",
-        "target_share_pct",
-        "xFP",
-        "td_regression_signal",
+        "target_share_pct"
     ]
     codes = {
         "lineup_role": {
@@ -2036,9 +2034,7 @@ def _trade_target_roster_table(
                         if str(value).isdigit()
                     ),
                     player.get("snap_share_pct"),
-                    player.get("target_share_pct"),
-                    player.get("xFP"),
-                    player.get("td_regression_signal"),
+                    player.get("target_share_pct")
                 ]
             )
         roster_rows.append(

@@ -936,7 +936,6 @@ class TradeTargetPacketTests(unittest.TestCase):
                 "week_projection", "week_projection_state", "ros_projection_pg",
                 "projection_change_pg", "status", "bye_weeks",
                 "snap_share_pct", "target_share_pct",
-                "xFP", "td_regression_signal",
             ],
         )
         field_index = {name: index for index, name in enumerate(fields)}
