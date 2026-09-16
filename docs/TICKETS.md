@@ -13,11 +13,24 @@
 # STATUS.md. T1 (spec bootstrap: create this file structure) is complete and
 # deleted from this list.
 
-## T2 — Market-anchored projection converter  [CORE; split T2a/T2b]
+## T2 — Market-anchored projection converter  [CORE; split T2a/T2b/T2d]
 
 T2a (2026-09-12): conditional offline converter implemented; eight new unit
 tests pass through `ff.py selftest`. See docs/MARKET_ANCHOR.md for assumptions
 and supported inputs. T2 remains incomplete until T2b passes.
+
+T2d (2026-09-12): sourced and wired the rec_yd/rush_yd SD that T4 exposed as
+missing, via `market_anchor.YARDAGE_SD_DEFAULTS` (provisional per-position
+defaults, applied one layer up in `market_anchor_projection.py`, not inside
+`convert_snapshot` itself). Real, non-null per-player projections now flow
+for QB/RB/WR. Two things found and explicitly deferred, not fixed here: the
+`rec_td`/`rush_td` vs. aggregate `td` market-name mismatch (narrowed
+`REQUIRED_STATS_BY_POSITION` to core yardage stats only as a workaround),
+and market_anchor/blend only ever covering whatever week a single fetch's
+snapshot has lines for, never a full ROS range (so `evaluate_trade`'s
+multi-week rollup still comes back null even though the per-week anchor
+does not). Still provisional, not T2b-validated. See STATUS.md's 2026-09-12
+T2d entry and docs/T2_ACCEPTANCE.json's `t2d_check`.
 
 T2c (2026-09-12): user-authorized prerequisite before T2b, completed. New line
 rows retain provider player names and event time/week/team/status metadata

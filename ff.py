@@ -199,6 +199,13 @@ def worker(args):
             current["players"] = inject_projection_sources(current["players"], result["sources"])
             market_anchor_diagnostics = result["diagnostics"]
             market_anchor_attribution = result["attribution"]
+            if result["provisional_sd_stats"]:
+                current.setdefault("runtime_warnings", []).append(
+                    "T2d: market_anchor/blend used provisional per-position yardage "
+                    f"SD defaults for {', '.join(result['provisional_sd_stats'])} "
+                    "(no T2b-validated per-player SD exists yet); see STATUS.md's "
+                    "T2d Decision Log."
+                )
         else:
             current.setdefault("runtime_warnings", []).append(
                 f"market_anchor/blend requested but no fresh sportsbook snapshot was written "

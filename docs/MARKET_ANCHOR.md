@@ -52,3 +52,15 @@ T2b must validate three real players in one settled week against independently
 sourced consensus closing projections (within approximately one FP), with
 final box scores used to inspect plausible distribution shape. Synthetic math
 checks do not satisfy this requirement. No accuracy claim is supported yet.
+
+T2d (2026-09-12) added `YARDAGE_SD_DEFAULTS`/`default_yardage_sd(position,
+stat)` to this module: provisional per-position weekly yardage SDs, sourced
+from the engine's own backtested `SIGMA_POS` (fantasy-point SD) divided by
+each stat's scoring weight for primary stats, and separately-reasoned
+constants for secondary ones. `convert_snapshot` itself is unchanged --
+still no default, still requires an explicit `yardage_sd` dict, still nulls
+a component with none. The default table is a caller-side convenience (used
+by `market_anchor_projection.compute_projection_sources`), never per-player,
+and does not satisfy T2b -- see STATUS.md's T2d entry for full sourcing and
+why cross-book line dispersion and alt-line quantile fitting were checked
+and rejected as sources first.

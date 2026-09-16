@@ -1,101 +1,205 @@
-﻿{
-    "status":  "blocked",
-    "check":  "T2 settled-week three-player acceptance",
-    "cached_events":  18,
-    "settled_cached_events":  0,
-    "history":  [
-                    {
-                        "file":  "2026-09-11T190538.833260Z-f45d56a25b2b4f34917e8e950aa8964b.jsonl",
-                        "line_rows":  0,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-11T190900.839227Z-7b0fe28826eb457798b3cd1b1a4edc45.jsonl",
-                        "line_rows":  0,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-11T193215.341805Z-37c5c8c1d74f4fb0b65d76e0d6ca6618.jsonl",
-                        "line_rows":  7169,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-                                                 1
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-11T223859.635539Z-f8a8dc4a41674aa796502cb626c91e2b.jsonl",
-                        "line_rows":  7321,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-                                                 1
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-11T223909.970064Z-52b44316d8d14c189565c22db936e988.jsonl",
-                        "line_rows":  7321,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-                                                 1
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-11T224114.354915Z-50303dc25b7a4459ab535a7d9857a8da.jsonl",
-                        "line_rows":  7321,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-                                                 1
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-12T004315.555617Z-3182ab3a3df143dfbecd504935c59d13.jsonl",
-                        "line_rows":  7349,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-                                                 1
-                                             ],
-                        "settled_event_line_rows":  0
-                    },
-                    {
-                        "file":  "2026-09-12T010609.464978Z-6ffccd0d55424b2fabe531dd7220cbbe.jsonl",
-                        "line_rows":  7344,
-                        "named_line_rows":  0,
-                        "projection_weeks":  [
-                                                 1
-                                             ],
-                        "settled_event_line_rows":  0
-                    }
-                ],
-    "reason":  "No settled event lines identified through available provider metadata; no independent consensus-close FP or final-box-score reference fixture is present.",
-    "t2b_recheck":  {
-                        "checked_at_utc":  "2026-09-12T19:31:15.912855+00:00",
-                        "verdict":  "BLOCKED_AWAITING_APPROVAL",
-                        "t2c_commit":  "7cc0a80",
-                        "first_local_snapshot_utc":  "2026-09-11T19:05:38.833260+00:00",
-                        "refreshed_provider_event_count":  18,
-                        "refreshed_provider_settled_event_count":  0,
-                        "snapshot":  "advisor_runtime/data/market_history/sports_game_odds/2026-09-12T193115.912855Z-e2629a67b7cb4de38f081c3ff6d212af.jsonl",
-                        "snapshot_line_rows":  7593,
-                        "schedule_source":  "https://www.nfl.com/schedules",
-                        "finding":  "Week 1 remains in progress; local snapshots start after kickoff of both games already final.",
-                        "player_results":  [
-
-                                           ],
-                        "anchor_comparison_run":  false,
-                        "distribution_shape_verdict":  null,
-                        "consensus_close_within_one_fp":  null,
-                        "proposed_timing_change":  "Resume after Week 1 settles (September 15 UTC), using saved pre-kickoff QB/RB/WR evidence; retain both actual-box-score shape and independent consensus-close checks.",
-                        "approval_received":  false
-                    }
+{
+  "status": "blocked",
+  "check": "T2 settled-week three-player acceptance",
+  "cached_events": 18,
+  "settled_cached_events": 0,
+  "history": [
+    {
+      "file": "2026-09-11T190538.833260Z-f45d56a25b2b4f34917e8e950aa8964b.jsonl",
+      "line_rows": 0,
+      "named_line_rows": 0,
+      "projection_weeks": [],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-11T190900.839227Z-7b0fe28826eb457798b3cd1b1a4edc45.jsonl",
+      "line_rows": 0,
+      "named_line_rows": 0,
+      "projection_weeks": [],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-11T193215.341805Z-37c5c8c1d74f4fb0b65d76e0d6ca6618.jsonl",
+      "line_rows": 7169,
+      "named_line_rows": 0,
+      "projection_weeks": [
+        1
+      ],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-11T223859.635539Z-f8a8dc4a41674aa796502cb626c91e2b.jsonl",
+      "line_rows": 7321,
+      "named_line_rows": 0,
+      "projection_weeks": [
+        1
+      ],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-11T223909.970064Z-52b44316d8d14c189565c22db936e988.jsonl",
+      "line_rows": 7321,
+      "named_line_rows": 0,
+      "projection_weeks": [
+        1
+      ],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-11T224114.354915Z-50303dc25b7a4459ab535a7d9857a8da.jsonl",
+      "line_rows": 7321,
+      "named_line_rows": 0,
+      "projection_weeks": [
+        1
+      ],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-12T004315.555617Z-3182ab3a3df143dfbecd504935c59d13.jsonl",
+      "line_rows": 7349,
+      "named_line_rows": 0,
+      "projection_weeks": [
+        1
+      ],
+      "settled_event_line_rows": 0
+    },
+    {
+      "file": "2026-09-12T010609.464978Z-6ffccd0d55424b2fabe531dd7220cbbe.jsonl",
+      "line_rows": 7344,
+      "named_line_rows": 0,
+      "projection_weeks": [
+        1
+      ],
+      "settled_event_line_rows": 0
+    }
+  ],
+  "reason": "No settled event lines identified through available provider metadata; no independent consensus-close FP or final-box-score reference fixture is present.",
+  "t2b_recheck": {
+    "checked_at_utc": "2026-09-12T19:31:15.912855+00:00",
+    "verdict": "BLOCKED_AWAITING_APPROVAL",
+    "t2c_commit": "7cc0a80",
+    "first_local_snapshot_utc": "2026-09-11T19:05:38.833260+00:00",
+    "refreshed_provider_event_count": 18,
+    "refreshed_provider_settled_event_count": 0,
+    "snapshot": "advisor_runtime/data/market_history/sports_game_odds/2026-09-12T193115.912855Z-e2629a67b7cb4de38f081c3ff6d212af.jsonl",
+    "snapshot_line_rows": 7593,
+    "schedule_source": "https://www.nfl.com/schedules",
+    "finding": "Week 1 remains in progress; local snapshots start after kickoff of both games already final.",
+    "player_results": [],
+    "anchor_comparison_run": false,
+    "distribution_shape_verdict": null,
+    "consensus_close_within_one_fp": null,
+    "proposed_timing_change": "Resume after Week 1 settles (September 15 UTC), using saved pre-kickoff QB/RB/WR evidence; retain both actual-box-score shape and independent consensus-close checks.",
+    "approval_received": false
+  },
+  "t2d_check": {
+    "checked_at_utc": "2026-09-12T20:49:46.750727+00:00",
+    "ticket": "T2d: source rec_yd/rush_yd SDs",
+    "verdict": "PASS_AT_CONVERTER_SCOPE; TRADE_ROLLUP_STILL_NULL_FOR_A_SEPARATE_REASON",
+    "snapshot": "advisor_runtime/data/market_history/sports_game_odds/2026-09-12T204946.750727Z-06d1467e81ff4b7d948852d8810b9944.jsonl",
+    "command": "ff.py --full trade --give \"Trevor Lawrence\" --give \"Javonte Williams\" --give \"Drake London\" --get \"Justin Herbert\" --get \"Kenneth Walker III\" --get \"Rome Odunze\" --projection-source blend",
+    "sd_source": "market_anchor.YARDAGE_SD_DEFAULTS -- provisional per-position defaults, primary stats derived from ff_v6_3.SIGMA_POS / scoring weight, secondary stats separately reasoned; see STATUS.md's T2d Decision Log",
+    "required_stats_narrowed_to": {
+      "QB": [
+        "pass_yd"
+      ],
+      "RB": [
+        "rush_yd",
+        "rec_yd"
+      ],
+      "WR": [
+        "rec_yd"
+      ],
+      "TE": [
+        "rec_yd"
+      ]
+    },
+    "narrowing_reason": "rec_td/rush_td can never resolve: SportsGameOdds only posts an aggregate anytime-TD market (stat key \"td\"), never split by rushing/receiving. Every required_stats list naming rec_td/rush_td was structurally unfulfillable regardless of SD -- a separate bug from T4, discovered and worked around (not fixed) in this ticket by narrowing scope to core yardage stats only.",
+    "player_results": [
+      {
+        "pid": "7523",
+        "name": "Trevor Lawrence",
+        "pos": "QB",
+        "week": 1,
+        "market_anchor_fp": 9.324828455146765,
+        "default_blend_fp": 17.7888,
+        "sleeper_only_fp": 18.051,
+        "espn_only_fp": 17.5266,
+        "provisional_sd_stats": [
+          "pass_yd"
+        ]
+      },
+      {
+        "pid": "6797",
+        "name": "Justin Herbert",
+        "pos": "QB",
+        "week": 1,
+        "market_anchor_fp": 9.44235279872711,
+        "default_blend_fp": 18.6693,
+        "sleeper_only_fp": 17.814,
+        "espn_only_fp": 19.5246,
+        "provisional_sd_stats": [
+          "pass_yd"
+        ]
+      },
+      {
+        "pid": "7588",
+        "name": "Javonte Williams",
+        "pos": "RB",
+        "week": 1,
+        "market_anchor_fp": 8.606690927514263,
+        "default_blend_fp": 16.3238,
+        "sleeper_only_fp": 17.413,
+        "espn_only_fp": 15.2345,
+        "provisional_sd_stats": [
+          "rec_yd",
+          "rush_yd"
+        ]
+      },
+      {
+        "pid": "8151",
+        "name": "Kenneth Walker III",
+        "pos": "RB",
+        "week": 1,
+        "market_anchor_fp": 7.96776747423421,
+        "default_blend_fp": 14.1764,
+        "sleeper_only_fp": 13.703,
+        "espn_only_fp": 14.6498,
+        "provisional_sd_stats": [
+          "rec_yd",
+          "rush_yd"
+        ]
+      },
+      {
+        "pid": "8112",
+        "name": "Drake London",
+        "pos": "WR",
+        "week": 1,
+        "market_anchor_fp": 5.508535768675962,
+        "default_blend_fp": 13.9302,
+        "sleeper_only_fp": 14.077,
+        "espn_only_fp": 13.7833,
+        "provisional_sd_stats": [
+          "rec_yd"
+        ]
+      },
+      {
+        "pid": "11620",
+        "name": "Rome Odunze",
+        "pos": "WR",
+        "week": 1,
+        "market_anchor_fp": 3.9196883895142225,
+        "default_blend_fp": 11.7348,
+        "sleeper_only_fp": 11.118,
+        "espn_only_fp": 12.3517,
+        "provisional_sd_stats": [
+          "rec_yd"
+        ]
+      }
+    ],
+    "plausibility_check": "market_anchor_fp (yardage-only, partial scoring by construction) is 33%-56% of default_blend_fp (full scoring) for all 6 players -- consistent with yardage being the largest but not the only scoring component for a skill player; not identical (as expected for a partial-scoring anchor) and not absurd (e.g. not near-zero or larger than the full projection).",
+    "blend_matches_anchor_reason": "assumption_registry is empty (no curated assumptions exist for these players) so market_anchor_blend == market_anchor for all 6, correctly per T3's apply() contract.",
+    "trade_rollup_null_reason": "evaluate_trade averages every week from the trade's effective week (2, since week 1 is already in progress) through week 17 (CONFIG[\"season_end_week\"]). A single market fetch only ever has lines for the current week's games; weekly_points_by_source[\"market_anchor\"] therefore has only a \"1\" entry, and _roster_average requires every week in range to resolve. This is a structural mismatch between single-week market coverage and a multi-week evaluator, not an SD gap -- no SD fix can supply weeks 2-17 data that does not exist. Deferred to a future ticket per the user's 2026-09-12 direction; not fixed in T2d.",
+    "full_test_suite": "python ff.py --selftest: 100 + 31 passing (131 total, 20 new tests)"
+  }
 }

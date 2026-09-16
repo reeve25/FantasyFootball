@@ -23,6 +23,69 @@ def number(value):
     return result
 
 
+# T2d: provisional per-position, per-stat weekly yardage SDs (in yards),
+# pending T2b's real settled-week empirical validation. See STATUS.md's T2d
+# Decision Log for the full sourcing rationale. These are deliberately never
+# per-player -- a per-player number needs T2b's settled-week validation, not
+# a default, and this module never derives one on its own; a caller decides
+# whether/how to use this table (see market_anchor_projection.py).
+#
+# Two considered and rejected real-data sources, in the order this repo asks
+# them to be tried:
+#  1. Cross-book line dispersion within one snapshot (different books post
+#     different single thresholds for the same player/stat -- real and
+#     common, ~42% of markets in one live fetch). Rejected: that dispersion
+#     measures disagreement among bookmakers' own point estimates of the
+#     mean, not the player's week-to-week outcome variance -- a different,
+#     much smaller quantity. Using it would produce a confidently-labeled
+#     but systematically-too-narrow SD, which is worse than an honest,
+#     explicitly-provisional default.
+#  2. True alt-line markets (the same book quoting multiple distinct
+#     thresholds for the same player/stat, which would let two or more
+#     quantiles of one consistent distribution be fit directly). Rejected:
+#     the raw SGO payload was inspected and does not offer these -- exactly
+#     one over/under pair per player/stat/event is requested and returned.
+#
+# PRIMARY stats (the position's dominant yardage stat) are instead derived
+# from the engine's own backtested per-game FANTASY-POINT forecast SD
+# (advisor_runtime/engine/ff_v6_3.py's SIGMA_POS -- measured residual SD of
+# preseason projection vs. realised score, n=905 trades/3 seasons; see
+# docs/TRAPS.md), divided by that stat's own linear scoring weight. This
+# assumes ~all of a position's point variance comes from its dominant
+# yardage stat, which overstates the true yardage-specific SD (some of that
+# point variance is really touchdown/reception variance) -- a deliberate
+# conservative bias (wider, less confident), never an underestimate:
+#   QB pass_yd: 3.02 / 0.04 = 75.5   RB rush_yd: 3.85 / 0.10 = 38.5
+#   WR rec_yd:  3.20 / 0.10 = 32.0   TE rec_yd:  2.27 / 0.10 = 22.7
+# These land inside commonly cited public ranges for weekly NFL passing
+# (~60-75 yd), rushing (~25-40 yd) and receiving (~20-35 yd) SDs, which is a
+# sanity check on the conversion, not an independent empirical source.
+#
+# SECONDARY stats (present for some players at a position without defining
+# it -- a receiving back's rec_yd, a mobile QB's rush_yd, a gadget WR's
+# rush_yd) have no equivalent position-level backtest to convert, so each
+# uses a separately-reasoned, smaller, conservative constant instead; see
+# STATUS.md's T2d Decision Log for the reasoning behind each.
+YARDAGE_SD_DEFAULTS = {
+    ("QB", "pass_yd"): 75.5,
+    ("QB", "rush_yd"): 16.0,
+    ("RB", "rush_yd"): 38.5,
+    ("RB", "rec_yd"): 15.0,
+    ("WR", "rec_yd"): 32.0,
+    ("WR", "rush_yd"): 9.0,
+    ("TE", "rec_yd"): 22.7,
+}
+
+
+def default_yardage_sd(position, stat):
+    """A provisional per-position weekly yardage SD, or None if uncovered.
+
+    See YARDAGE_SD_DEFAULTS above for sourcing. Never per-player -- callers
+    needing a validated per-player number must wait for T2b, not this.
+    """
+    return YARDAGE_SD_DEFAULTS.get((position, stat))
+
+
 def implied_probability(price):
     price = number(price)
     if abs(price) < 100:

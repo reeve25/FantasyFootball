@@ -54,12 +54,26 @@ players only:
    week -- additively, never mutating existing keys, never padding a fully
    null player with an empty entry.
 
-`yardage_sd`/`fallbacks` are **not supplied** in this wiring (empty `{}`):
-without a T2b-validated SD, every yardage-dependent stat (`rec_yd`,
-`rush_yd`, `pass_yd`) stays a documented missing component, so `anchor_fp`
-is null for any real skill player today. This is expected, not a wiring bug
--- see STATUS.md's T2b block. `market_anchor`/`blend` will stay null in
-practice until T2b lands a validated SD source.
+**Updated by T2d (2026-09-12).** `yardage_sd` now defaults to
+`market_anchor_projection.build_default_yardage_sd(players)` --
+`market_anchor.YARDAGE_SD_DEFAULTS`'s provisional per-position values,
+applied whenever `compute_projection_sources` isn't told
+`use_default_yardage_sd=False` or given an explicit override for that exact
+(pid, week, stat). See STATUS.md's T2d entry for how those defaults were
+sourced (the engine's own backtested `SIGMA_POS`, converted from
+fantasy-point to yardage units for primary stats; separately-reasoned
+constants for secondary stats) and the two real, cross-book/alt-line
+approaches that were checked and rejected first. `fallbacks` is still not
+supplied (empty `{}`): no team-share default exists or is invented.
+`REQUIRED_STATS_BY_POSITION` was also narrowed by T2d to each position's
+core yardage stat(s) only (`QB: [pass_yd]`, `RB: [rush_yd, rec_yd]`,
+`WR: [rec_yd]`, `TE: [rec_yd]`) after finding that `rec_td`/`rush_td` can
+never resolve -- SportsGameOdds only posts an aggregate anytime-TD market,
+never split by rushing/receiving -- which had been silently nulling every
+T4 result independently of the SD gap. `anchor_fp` is therefore a
+yardage-only partial approximation, more so than originally designed.
+A player-week the fetch has no lines for still nulls appropriately; a
+player-week it does cover now produces a real, non-null number.
 
 The packet also gets, only when a market_anchor/blend fetch ran:
 `market_anchor_diagnostics` (rejected-evidence rows from `convert_snapshot`)
@@ -67,7 +81,7 @@ and `assumption_attribution` (`{pid: {week: {anchor_fp, adjusted_fp,
 cap_applied, attribution}}}` -- present, possibly with an empty
 `attribution` list, even when nothing was curated to attribute).
 
-## Verified
+## Verified (T4, 2026-09-12, superseded in part by T2d below)
 
 `python ff.py trade --give "Drake London" --get "Kenneth Walker III"` rerun
 with each source, live, 2026-09-12:
@@ -83,10 +97,29 @@ with each source, live, 2026-09-12:
 `sleeper`/`espn` exactly reproduce the default run's own
 `independent_projection_checks` entries for those sources, confirming the
 switch and the existing comparison agree. `market_anchor`/`blend` came back
-null for both players: `market_anchor_diagnostics` shows
-`"reason": "Yardage SD assumption required"` for both (pid 8112 Drake
-London, pid 8151 Kenneth Walker) -- real fresh lines were fetched and both
-players' identity/week resolved correctly (T2c metadata + the alias bridge
-both worked), but neither has a documented receiving/rushing-yardage SD,
-which is exactly the pre-existing T2b gap, not a new problem. Full test
-suite: `python ff.py --selftest`, 94 + 31 passing.
+null at the time: `market_anchor_diagnostics` showed `"reason": "Yardage SD
+assumption required"` for both players -- fixed by T2d below (though see
+T2d's own new finding on why the *trade-level* row still won't show a
+number even now).
+
+## T2d re-verification (2026-09-12): per-player anchors are real; the trade rollup has a separate, new limit
+
+With the SD sourced and `REQUIRED_STATS_BY_POSITION` narrowed to core
+yardage stats (see STATUS.md's T2d entry), the same command now produces
+real per-player, per-week `market_anchor`/`market_anchor_blend` values --
+verified for 6 real players across QB/RB/WR in docs/T2_ACCEPTANCE.json's
+`t2d_check` (e.g. Drake London 5.51 anchor vs. 13.93 default, a plausible
+~40% yardage-only share). `independent_projection_checks` in that packet
+now includes real `market_anchor`/`market_anchor_blend` entries alongside
+`espn`/`sleeper_projection_feed`, exactly as designed.
+
+The trade's own top-level `perspective_delta_pg`/`counterparty_delta_pg`
+under `--projection-source market_anchor`/`blend` still comes back null,
+for a different reason than before: `evaluate_trade` averages every week
+from the trade's effective week through week 17, and a single market fetch
+only ever has lines for the current week. `weekly_points_by_source[
+"market_anchor"]` therefore has just one week's entry, and `_roster_average`
+requires every week in range to resolve. No SD fix addresses this -- it's a
+structural mismatch between single-week market coverage and a multi-week
+evaluator, left open for a future ticket (not T5, per STATUS.md's T2d
+next-prompt, unless it blocks T5's own acceptance).
