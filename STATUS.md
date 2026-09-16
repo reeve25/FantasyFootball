@@ -1,6 +1,6 @@
 # Shared system status
 
-Updated 2026-09-12.
+Updated 2026-09-14.
 
 Production: C:\Users\reeve\Documents\FantasyFootball\ff.py
 One local Git repository; no remote or publication. Existing sources and engine
@@ -1135,3 +1135,254 @@ also run T2b (real settled-week SD validation) using the same now-settled
 week, since both need the identical real box scores and this is the first
 opportunity either has had. Do not start T6/T7/T8 until that combined
 T2b+T5 real-data pass has run and been logged here.
+
+## 2026-09-14 -- T5 repair: real season/scoring, fresh finality check,
+## reception scoring, component-level validation; first real scored backtest
+
+A same-day audit (Codex, read-only) found T5's live run had never actually
+been exercised end-to-end: `ff.py backtest` read season/scoring from
+`advisor.load_snapshot()`, whose persisted `league` dict never stores either
+field (only `advisor._sync_live()` adds them, transiently, from a live
+fetch, never written back to disk) -- so every real run silently scored with
+`season=""`/`scoring={}` and reported the same `"no_eligible_weeks"` a
+genuinely-not-finished week would. The audit also found: (a) the "played"
+gate trusted Sleeper's `gp` alone, which can be `1` mid-game, not proof a
+game has finished; (b) `market_anchor`/`market_anchor_blend` still omit
+receptions from full-PPR scoring; (c) a corrected 2026 Week 1 query showed
+457 "played" players, underscoring that finality needed independent
+verification, not an assumption. This session (Claude) fixed all four at
+the root, added a fresh-market-status finality check, added component-level
+market-vs-actual validation, and ran the harness live for the first time
+against real, finished games.
+
+### Fixes, at the root cause each time
+
+- **Season/scoring**: `ff.py`'s `backtest` branch now calls
+  `sleeper_live.fetch_live_context()` -- the exact same live-context path
+  every other command already uses -- and passes its real `season`/
+  `scoring_settings` into `run_backtest()` explicitly, instead of relying on
+  `run_backtest`'s own `advisor.load_snapshot()` fallback (kept only as a
+  last resort for direct/test callers). Belt-and-suspenders: `run_backtest`
+  itself now fails loudly (`{"status": "invalid_inputs", ...}`) if season or
+  scoring ever come back empty, rather than silently producing a
+  `"no_eligible_weeks"` indistinguishable from a genuinely-unfinished week.
+  `ff.py backtest` also moved into the 120s timeout bucket (alongside
+  `refresh`/`selftest`) -- it now does real live-league + market-status
+  network work, not just local file scoring.
+- **Finality**: new `market_sources.fetch_event_status()`/
+  `classify_event_status()` do a FRESH SportsGameOdds `v2/events` lookup
+  filtered by the specific `eventID`s in question (comma-separated), never
+  the stale pre-kickoff snapshot's own `event_metadata.status` (always
+  "not started" by construction). This query shape was tried two ways and
+  verified live before being wired in: the same `oddsAvailable=true`/
+  `oddIDs` shape `sports_game_odds()` uses for player props was tried
+  first and rejected -- live inspection showed `oddsAvailable=true`
+  structurally excludes finished games (no available prop odds left to
+  quote), which would have made every completed game misreport as
+  "unknown," defeating the point. Filtering by `eventID=<comma-list>`
+  instead was verified live against three real Week 1 events (two
+  correctly `"Final"`/`completed=True`, one correctly `"Upcoming"`) before
+  being used for real. `backtest.run_backtest()` now buckets every
+  candidate event into final/not_final/unknown via a fresh check and only
+  scores `final` events; `score_event_player()`'s existing `gp` check is
+  now the second of two required signals, never sufficient alone --
+  matching the exact user instruction. An `"unknown"` event (provider key
+  missing, request failed, or the event aged out of a future broader query)
+  is treated the same as "not yet final," never scored.
+- **Receptions**: `market_anchor_projection.py` adds `"rec"` (SportsGameOdds'
+  `receiving_receptions` market) as an OPTIONAL stat for RB/WR/TE, following
+  T2e's exact touchdown pattern -- gated only by whether the league's own
+  `rec` coefficient is numeric (`reception_scoring_usable()`; no cross-stat
+  ambiguity like touchdown's rush/rec split, since the market key already
+  equals the real Sleeper scoring key), never required, so a missing
+  reception market degrades to yardage(+TD)-only rather than nulling the
+  whole anchor. QB excluded (not a market this repo has ever observed
+  posted). No new SD table needed: `"rec"` doesn't end in `_yd`, so it
+  already uses the existing generic Poisson count-market model
+  `stat_distribution()` provides for any two-sided count market.
+- **Explicit disclosure of what's still unmodeled**: new
+  `unmodeled_scoring_components()` reports, per player, which real
+  full-PPR components (fumbles lost, two-point conversions) this converter
+  still never prices for that position, restricted to ones the league
+  actually assigns a nonzero weight -- surfaced in
+  `compute_projection_sources()`'s top-level return and in every backtest
+  record, so a yardage+TD+reception anchor is never mistaken for a complete
+  scoring replica.
+- **Converter error vs. market error**: `compute_projection_sources()`'s
+  attribution now includes `implied_stats` (the market's own per-component
+  mean, e.g. implied `rec_yd`), and `backtest.score_event_player()` compares
+  each priced component against the SAME real box-score stat
+  (`component_validation`), not just the summed fantasy-point total -- this
+  is what lets a reader tell "the market misjudged this player's yardage"
+  apart from "our blend/weighting logic is wrong given a correct anchor."
+  The market's `"td"` component is a rush+rec aggregate with no matching key
+  in Sleeper's box score, so its "actual" is the sum of `rush_td`+`rec_td`,
+  computed explicitly rather than looked up (fixed mid-session after the
+  first live run showed every `"td"` component reading as unmeasured despite
+  real data being available).
+
+### Acceptance: run live, for real, for the first time
+
+`python ff.py --selftest`: **203 tests pass** (172 runtime + 31 other; up
+from 179 before this session -- 24 new tests, covering the finality gate
+(final/not_final/unknown, `gp`-alone insufficiency), `fetch_event_status`/
+`classify_event_status` (missing key, empty event set, fresh fetch, cache
+hit, provider error), reception optional-stat behavior (present, absent,
+league-not-scored, `rec_usable` defaulting False so old callers are
+unchanged), `unmodeled_scoring_components`, component-level validation
+(including the `td` rush+rec sum), and `invalid_inputs` for empty
+season/scoring). One pre-existing, already-logged flaky test
+(`test_focused_market_packet_flags_and_warns_on_lost_book_coverage`, a
+real-clock timestamp race, first noted in T2d's entry) failed once across
+several full-suite runs and passed cleanly in isolation and on repeat runs
+-- not a regression from this session.
+
+`python ff.py --timeout 240 backtest`, live, 2026-09-14T16:52 UTC:
+
+```
+status: scored
+season: "2026" (real; previously always "")
+weeks_checked: [1]
+candidate_events: 14
+events_by_finality: {final: 10, not_final: 0, unknown: 4}
+player_weeks_scored: 190
+mae_by_source: {market_anchor: 5.885, market_anchor_blend: 5.885,
+                sleeper_projection_feed: 4.578}
+n_by_source: {market_anchor: 114, market_anchor_blend: 114,
+              sleeper_projection_feed: 183}
+anchored_vs_consensus_counterfactual:
+  n: 114, anchored_blend_mae: 5.885, consensus_only_blend_mae: 5.7781,
+  anchored_minus_consensus_mae: +0.1069
+  (positive: a consensus-only blend would have done very slightly BETTER
+  than the market anchor on these 114 real Week 1 outcomes -- an honest
+  first result, not a claim the anchor is broken or that it always loses;
+  n=114 is one week, one direction of noise)
+```
+
+The 4 "unknown" events are plausible, not a defect: several Week 1 games
+(the Monday night slate) had not finished as of the run's UTC timestamp,
+and 2 of the 14 candidate events did not come back in the fresh `eventID`
+lookup at all (aged out of whatever near-term window the provider
+maintains) -- both are exactly what "unknown, never scored" is supposed to
+do with data that cannot be confirmed, not evidence the check is broken (10
+of 14 candidates, including every Sunday-early/late game, correctly
+resolved to "final").
+
+Per-metric disclosure, as required: N=190 player-weeks scored across 1 week
+(114 with a real market anchor, 183 with a Sleeper projection feed value;
+not every player has both); forecast cutoff is the earliest locally-stored
+pre-kickoff snapshot per event (each record carries its own
+`forecast_cutoff_utc`, e.g. `2026-09-12T19:31:15Z` for the players sampled
+below); finalization rule is the fresh dual check above; scoring
+configuration is this league's real live Sleeper scoring settings (full
+list in each run's `methodology.scoring_keys_used`); missing market
+components (reception market not posted, anytime-TD market not posted) are
+never nulled or invented -- the anchor degrades one component at a time and
+`optional_missing`/`confidence` name exactly which; fumbles lost and
+two-point conversions are still never priced at all, disclosed per player
+in `unmodeled_scoring_components`.
+
+Sample component-level records (market-implied vs. actual, same box-score
+stat, from the live run above):
+
+| player | component | market-implied | actual | error |
+| --- | --- | --- | --- | --- |
+| Cam Ward | pass_yd | 202.34 | 140.0 | 62.34 |
+| Breece Hall | rush_yd | 65.54 | 102.0 | 36.46 |
+| Breece Hall | rec | 2.83 | 2.0 | 0.83 |
+| Breece Hall | td | 0.61 | 1.0 | 0.39 |
+| Garrett Wilson | rec_yd | 62.31 | 79.0 | 16.69 |
+| Garrett Wilson | rec | 5.72 | 6.0 | 0.28 |
+| Geno Smith | pass_yd | 211.23 | 215.0 | 3.77 |
+
+These are the market's OWN implied per-component values against the same
+real stat -- separate from `sleeper_projection_feed`'s and this repo's own
+blend's fantasy-point totals -- so a large `pass_yd` miss (Cam Ward) reads
+as the market misjudging that game, not this repo's converter; a small one
+(Geno Smith) reads as the market doing its job. `market_anchor_blend`
+equals `market_anchor` for every one of the 190 records (no curated T3
+assumptions exist yet -- the correct, honest result given nothing to blend
+with, unchanged since T2d).
+
+### Provisional weekly rankings (refreshed baseline; playoff weeks separate)
+
+Projection snapshot refreshed this session (`ensure_snapshot(quick=True)`,
+run as part of every `backtest` invocation above): `generated_at_utc`
+2026-09-14T16:44 UTC, both source feeds fresh. `python ff.py rankings`
+(unmodified baseline command, weeks 1-17 blended, skill positions only):
+Reeve's roster (9, LemarJacksSons) ranks **#1** at 116.05 core starter
+pts/gm; full 12-team order is in that run's `power_rankings` (evidence file
+`outputs/20260914T165359Z-ac5dc188/evidence.json`).
+
+Playoff weeks (15-17) computed separately, via the existing
+`advisor._roster_average()` function with `weeks=[15,16,17]` instead of the
+full season range -- no new engine code, a one-off analysis script only:
+Reeve's roster is **also #1** at 119.85 pts/gm in the playoff window, but
+the order behind it shifts (roster 10 "adi" moves from #5 baseline to #2
+playoff, roster 12 stays #3) -- a bye-week/schedule effect already present
+in the refreshed baseline projections, not a new fact verified this
+session. **No new player usage/role/injury news was researched or
+incorporated this session** (this was a backend data-pipeline repair
+session, not an advice session) -- these rankings reflect the refreshed
+existing sleeper+espn baseline only, not a market-anchor-adjusted number;
+`--projection-source` remains `trade`-only (T4/T7's own deferral, unchanged
+here).
+
+### Diff, distinguished from pre-existing unrelated work
+
+Preserved untouched, byte-for-byte (verified by `git diff --stat` matching
+this session's own pre-work review exactly): `BRIEF.md` (21
+insertions/-5), `advisor_runtime/trade_search.py` (48/-9),
+`docs/TRADES.md` (50/-0) -- all belong to an unrelated, still-uncommitted
+`discover --mode ours|mutual` feature. `ff.py`'s pre-existing `--mode`
+argparse hunk and its `discover(...)` call site are both untouched; this
+session's only `ff.py` change is the new `backtest` branch's live-context
+wiring plus the timeout-bucket one-liner.
+
+This session's actual diff: `advisor_runtime/backtest.py` (+177/-35),
+`advisor_runtime/market_anchor_projection.py` (+121/-16),
+`advisor_runtime/market_sources.py` (+72 new functions only), `ff.py`
+(+40/-2 for the two items above), three test files (+295 total, 24 new
+tests), and `docs/backtest/summary.json`/new run JSON files (real run
+artifacts, append-only per the harness's own existing design -- nothing
+pruned or rewritten).
+
+### Remaining limitations (unchanged or newly surfaced, not fixed here)
+
+- **T2b** (real per-player settled-week SD validation) remains unvalidated
+  and deferred, unchanged by this session -- `YARDAGE_SD_DEFAULTS` are still
+  provisional per-position constants, not empirically validated per-player
+  numbers.
+- **This is one week, n=114 for the anchored comparison.** The
+  `anchored_minus_consensus_mae: +0.1069` result is the first real number,
+  not a validated verdict either way -- per the task's own instruction, it
+  must not be presented as independent validation of anything that was
+  tuned using it, and nothing was tuned to it this session (no thresholds,
+  weights, or defaults were changed based on this run's outcome; the run
+  came after all code changes were finished and tested offline).
+  Genuinely-independent validation starts at Week 2+.
+- **Fumbles lost and two-point conversions remain unpriced** in the market
+  anchor, for every position -- disclosed per-player via
+  `unmodeled_scoring_components`, not fixed.
+- **The anytime-TD market's one-sided pricing bias** (T2e: no de-vig
+  partner, small systematic upward bias on the raw implied probability)
+  remains unquantified and uncorrected.
+- **The fresh finality check's own coverage is bounded by the provider's
+  query window** -- 2 of 14 candidate events did not come back from the
+  `eventID` lookup at all this run (a plausible provider-side aging-out, not
+  investigated further); those are correctly "unknown," never scored, but
+  it means some real finished games may go unscored for reasons other than
+  "hasn't happened yet." Not fixed here; worth revisiting if "unknown" stays
+  large in future runs.
+- **No new usage/role/injury research was performed this session** -- the
+  provisional rankings above are the refreshed existing baseline only.
+
+Exact next steps (not a new ticket's starting prompt -- this was a repair
+of T5's own stated next steps, not a new ticket number): keep running
+`ff.py backtest` as more weeks settle to accumulate n; do not treat any
+single week's `anchored_vs_consensus_counterfactual` as a verdict on
+whether the market anchor is worth keeping until several weeks have
+accumulated. T2b real per-player SD validation can now reuse this same
+session's fresh-finality machinery once someone picks it up. T6 (delta
+table)/T7 (conversational routing)/T8 (championship layer) remain not
+started, per the user's explicit scope instruction for this session.

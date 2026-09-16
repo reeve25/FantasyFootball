@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from advisor_runtime.market_anchor import touchdown_distribution
+from advisor_runtime.market_anchor import stat_distribution, touchdown_distribution
 from advisor_runtime.market_anchor_projection import (
     REQUIRED_STATS_BY_POSITION,
     apply_consensus_fallback,
@@ -9,8 +9,10 @@ from advisor_runtime.market_anchor_projection import (
     compute_projection_sources,
     inject_projection_sources,
     optional_stats_for,
+    reception_scoring_usable,
     required_stats_for,
     resolve_touchdown_scoring,
+    unmodeled_scoring_components,
 )
 
 
@@ -107,6 +109,46 @@ class OptionalStatsForTests(unittest.TestCase):
         players = [{"pid": "1", "pos": "K"}]
         self.assertEqual(optional_stats_for(players, td_usable=True), {})
 
+    def test_rec_usable_defaults_false_so_old_callers_are_unchanged(self):
+        players = [{"pid": "1", "pos": "WR"}]
+        self.assertEqual(optional_stats_for(players, td_usable=True), {"1": ["td"]})
+
+    def test_rec_usable_adds_reception_for_pass_catchers_only(self):
+        players = [{"pid": "1", "pos": "QB"}, {"pid": "2", "pos": "RB"},
+                   {"pid": "3", "pos": "WR"}, {"pid": "4", "pos": "TE"}]
+        stats = optional_stats_for(players, td_usable=True, rec_usable=True)
+        self.assertEqual(stats["1"], ["td"])  # QB never gets "rec"
+        self.assertEqual(stats["2"], ["td", "rec"])
+        self.assertEqual(stats["3"], ["td", "rec"])
+        self.assertEqual(stats["4"], ["td", "rec"])
+
+    def test_rec_usable_alone_still_offers_reception_without_td(self):
+        players = [{"pid": "1", "pos": "WR"}]
+        self.assertEqual(
+            optional_stats_for(players, td_usable=False, rec_usable=True), {"1": ["rec"]}
+        )
+
+
+class ReceptionScoringUsableTests(unittest.TestCase):
+    def test_usable_when_rec_coefficient_is_numeric(self):
+        self.assertTrue(reception_scoring_usable({"rec": 1.0}))
+
+    def test_unusable_when_absent_or_non_numeric(self):
+        self.assertFalse(reception_scoring_usable({}))
+        self.assertFalse(reception_scoring_usable({"rec": "1.0"}))
+        self.assertFalse(reception_scoring_usable({"rec": True}))
+
+
+class UnmodeledScoringComponentsTests(unittest.TestCase):
+    def test_reports_only_nonzero_league_weighted_components(self):
+        players = [{"pid": "1", "pos": "TE"}, {"pid": "2", "pos": "K"}]
+        result = unmodeled_scoring_components({"fum_lost": -2.0, "rec_2pt": 0}, players)
+        self.assertEqual(result, {"1": ["fum_lost"]})  # rec_2pt is 0, K unlisted
+
+    def test_empty_when_league_scores_none_of_them(self):
+        players = [{"pid": "1", "pos": "TE"}]
+        self.assertEqual(unmodeled_scoring_components({"rec_yd": 0.1}, players), {})
+
 
 def te_rows():
     """rec_yd alone covers TE's (T2d-narrowed) full required-stats list."""
@@ -125,11 +167,31 @@ def td_row(line=1.5, price=750, player_id="SGO1", event_id="e1"):
     )
 
 
+def rec_row(line=4.5, event_id="e1", player_id="SGO1"):
+    return [
+        dict(
+            row_type="line", event_id=event_id, player_id=player_id, book="b",
+            market="rec", line=line, side=side, price=-110,
+            fetched_at_utc="2026-09-01T00:00:00Z", player_name="Cam Ward",
+            event_metadata={"season_week": "Week 3"},
+        )
+        for side in ("over", "under")
+    ]
+
+
 TE_SCORING = {"rec_yd": .1}
 TE_SD = {("12522", 3, "rec_yd"): 30}
 # 74.5 yards at -110/-110: no-vig mean is exactly the line.
 TE_EXPECTED_ANCHOR = 74.5 * .1
 TE_SCORING_WITH_TD = {"rec_yd": .1, "rush_td": 6.0, "rec_td": 6.0}
+# Full PPR: 1 point per reception. Receptions are a count stat (Poisson
+# model, like touchdowns), NOT a yardage stat -- the "-110/-110 implies
+# mean == line" shortcut only holds for the normal-approximation yardage
+# model above; a symmetric price does not imply mean == line for Poisson
+# (its median and mean differ), so the expected value is taken from the
+# real function, the same way td_row's own expected value is computed below.
+TE_SCORING_WITH_REC = {"rec_yd": .1, "rec": 1.0}
+TE_EXPECTED_REC_FP = stat_distribution(4.5, -110, -110)["mean"] * 1.0
 
 
 class ComputeProjectionSourcesTests(unittest.TestCase):
@@ -258,6 +320,50 @@ class ComputeProjectionSourcesTests(unittest.TestCase):
         )
         self.assertAlmostEqual(result["sources"]["12522"]["market_anchor"]["3"], TE_EXPECTED_ANCHOR)
         self.assertFalse(result["td_scoring_usable"])
+
+    def test_reception_present_adds_a_nonzero_component_and_marks_complete(self):
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        result = compute_projection_sources(
+            te_rows() + rec_row(), players=players, scoring=TE_SCORING_WITH_REC, yardage_sd=TE_SD,
+        )
+        anchor = result["sources"]["12522"]["market_anchor"]["3"]
+        self.assertAlmostEqual(anchor, TE_EXPECTED_ANCHOR + TE_EXPECTED_REC_FP)
+        entry = result["attribution"]["12522"]["3"]
+        self.assertEqual(entry["confidence"], "conditional_market")
+        self.assertEqual(entry["optional_missing"], [])
+        self.assertTrue(result["rec_scoring_usable"])
+        self.assertAlmostEqual(entry["implied_stats"]["rec"], TE_EXPECTED_REC_FP)
+        self.assertAlmostEqual(entry["implied_stats"]["rec_yd"], 74.5)
+
+    def test_reception_absent_degrades_to_yardage_only_never_null(self):
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        result = compute_projection_sources(
+            te_rows(), players=players, scoring=TE_SCORING_WITH_REC, yardage_sd=TE_SD,
+        )
+        anchor = result["sources"]["12522"]["market_anchor"]["3"]
+        self.assertAlmostEqual(anchor, TE_EXPECTED_ANCHOR)  # no reception market this run
+        entry = result["attribution"]["12522"]["3"]
+        self.assertEqual(entry["confidence"], "yardage_only")
+        self.assertEqual(entry["optional_missing"], ["rec"])
+        self.assertTrue(result["rec_scoring_usable"])
+
+    def test_reception_never_offered_when_league_has_no_rec_coefficient(self):
+        # T2d/T2e-era caller with no "rec" in scoring at all: byte-for-byte
+        # unchanged, same discipline as td_scoring_usable's own guard.
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        result = compute_projection_sources(
+            te_rows() + rec_row(), players=players, scoring=TE_SCORING, yardage_sd=TE_SD,
+        )
+        self.assertAlmostEqual(result["sources"]["12522"]["market_anchor"]["3"], TE_EXPECTED_ANCHOR)
+        self.assertFalse(result["rec_scoring_usable"])
+
+    def test_unmodeled_scoring_components_surfaced_at_the_top_level(self):
+        players = [{"pid": "12522", "name": "Cam Ward", "pos": "TE"}]
+        scoring = dict(TE_SCORING_WITH_REC, fum_lost=-2.0)
+        result = compute_projection_sources(
+            te_rows() + rec_row(), players=players, scoring=scoring, yardage_sd=TE_SD,
+        )
+        self.assertEqual(result["unmodeled_scoring_components"], {"12522": ["fum_lost"]})
 
 
 class ApplyConsensusFallbackTests(unittest.TestCase):

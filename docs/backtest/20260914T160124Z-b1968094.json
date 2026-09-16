@@ -1,0 +1,11 @@
+{
+  "candidate_events": 14,
+  "checked_at_utc": "2026-09-14T16:01:24+00:00",
+  "player_weeks_scored": 0,
+  "reason": "Pre-kickoff snapshots exist, but Sleeper's stats endpoint reports no scoreable player as having played yet for week(s) [1].",
+  "run_id": "20260914T160124Z-b1968094",
+  "status": "no_eligible_weeks",
+  "weeks_checked": [
+    1
+  ]
+}

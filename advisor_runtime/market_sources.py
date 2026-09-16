@@ -557,6 +557,78 @@ def sports_game_odds(
     }
 
 
+def classify_event_status(status: dict[str, Any] | None) -> str:
+    """"final" / "not_final" / "unknown" from an SGO event ``status`` object.
+
+    T5 backtest fix: a pregame snapshot's own stored ``event_metadata.status``
+    is always "not started" by construction (see docs/MARKET_HISTORY.md) and
+    a player's Sleeper ``gp`` flag alone is not proof either -- Sleeper's live
+    stats can show ``gp=1`` while a game is still in progress. This classifies
+    a FRESH status object (see fetch_event_status below); no status at all
+    (provider error, missing key, or the event has aged out of the provider's
+    default window) is "unknown", never treated as "final" or "not_final".
+    """
+    if not status:
+        return "unknown"
+    if any(bool(status.get(key)) for key in ("completed", "ended", "finalized")):
+        return "final"
+    return "not_final"
+
+
+def fetch_event_status(event_ids: set[str]) -> dict[str, dict[str, Any]]:
+    """Fresh {event_id: status} for the given SGO event IDs -- never read from
+    a stored historical snapshot, which can only ever show "not started" for
+    a pre-kickoff row.
+
+    Filters by the ``eventID`` query parameter (comma-separated), verified
+    live against this repo's own real Week 1 event IDs before being wired in
+    here (a finished event's own current status came back correctly as
+    ``completed=True``/``displayLong="Final"``, an unplayed one as
+    ``"Upcoming"``) -- NOT the ``oddsAvailable=true`` / ``oddIDs`` shape
+    ``sports_game_odds`` uses for player props: that shape was tried first
+    and rejected because ``oddsAvailable=true`` structurally EXCLUDES
+    finished games (a completed game has no available prop odds left to
+    quote), which would have made every already-final game misreport as
+    "unknown" -- silently defeating the entire point of a finality check.
+    Deliberately does not write a market-history snapshot -- this is a
+    game-state check, not a player-line observation. A short local cache (5
+    minutes) avoids refetching on repeat backtest runs within the same live
+    game window.
+
+    Returns {} (never guesses) when the API key is missing, the request
+    fails, or no event IDs were asked for -- callers must treat an event
+    absent from the result as "unknown", not "not final".
+    """
+    if not event_ids:
+        return {}
+    secrets = load_secrets()
+    api_key = secrets.get("SPORTSGAMEODDS_API_KEY")
+    if not api_key:
+        return {}
+    ids = sorted(str(event_id) for event_id in event_ids)
+    params = urlencode({"leagueID": "NFL", "eventID": ",".join(ids)})
+    cache_key = "sportsgameodds_event_status_" + hashlib.sha256(",".join(ids).encode()).hexdigest()[:16] + ".json"
+    payload = _cache_read(cache_key, 5 * 60)
+    if payload is None:
+        try:
+            response = requests.get(
+                f"https://api.sportsgameodds.com/v2/events?{params}",
+                headers={**HEADERS, "x-api-key": api_key},
+                timeout=45,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            return {}
+        _cache_write(cache_key, payload)
+    statuses = {}
+    for event in payload.get("data") or []:
+        event_id = str(event.get("eventID") or "")
+        if event_id in event_ids:
+            statuses[event_id] = dict(event.get("status") or {})
+    return statuses
+
+
 def _odds_markets(position: str) -> list[str]:
     if position == "QB":
         return ["player_pass_yds", "player_pass_tds", "player_pass_interceptions", "player_pass_attempts"]

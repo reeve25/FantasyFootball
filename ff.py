@@ -97,6 +97,17 @@ def parser():
             )
         if command == "discover":
             q.add_argument("--manager")
+            q.add_argument(
+                "--mode",
+                choices=["ours", "mutual"],
+                default="ours",
+                help=(
+                    "ours (default): rank by Reeve's own modeled lineup gain; "
+                    "a negative counterparty delta is shown, never excluded. "
+                    "mutual: the original screen -- also requires a "
+                    "non-negative counterparty delta."
+                ),
+            )
             q.add_argument("--limit", type=int, default=3)
             q.add_argument("--candidates", type=int, default=66)
     return p
@@ -132,7 +143,30 @@ def worker(args):
         return
     if args.command == "backtest":
         from advisor_runtime import backtest as b
-        save(b.run_backtest())
+        from advisor_runtime.sleeper_live import fetch_live_context
+        # A saved projection snapshot's league dict never stores season or
+        # scoring_settings -- those are only ever added transiently by
+        # a._sync_live() merging a live fetch, never written back to disk
+        # (see backtest.py's module docstring). Fetch the same live context
+        # every other command already uses instead of guessing/hardcoding.
+        try:
+            live = fetch_live_context(a.LEAGUE_ID, a.MY_ROSTER_ID, {})
+        except Exception as exc:
+            save({
+                "status": "live_league_unavailable",
+                "reason": type(exc).__name__,
+                "detail": (
+                    "Backtest needs real live league season and scoring "
+                    "settings; a saved snapshot never stores them. Refusing "
+                    "to fall back to an empty/guessed value."
+                ),
+            })
+            return
+        season = str(live.get("season") or "")
+        scoring = live.get("scoring_settings") or {}
+        snapshot = a.ensure_snapshot(quick=True)
+        engine_players = list((snapshot.get("players") or {}).values())
+        save(b.run_backtest(engine_players=engine_players, scoring=scoring, season=season))
         return
     try:
         snapshot = a.load_snapshot()
@@ -290,7 +324,7 @@ def worker(args):
     save(packet)
     if args.command == "discover":
         from advisor_runtime.trade_search import discover
-        packet = discover(current, manager=args.manager, limit=args.limit, max_candidates=args.candidates)
+        packet = discover(current, manager=args.manager, limit=args.limit, max_candidates=args.candidates, mode=args.mode)
         save(packet)
     market_refresh = getattr(args, "market_refresh", False)
     if (args.market or args.deep or market_refresh) and args.command != "discover":
@@ -329,7 +363,7 @@ def main(argv=None):
     if args.command == "status":
         print(json.dumps(local_status(), allow_nan=False))
         return 0
-    timeout = args.timeout if args.timeout is not None else (120 if args.command in {"refresh", "selftest"} else 45)
+    timeout = args.timeout if args.timeout is not None else (120 if args.command in {"refresh", "selftest", "backtest"} else 45)
     if not 0 < timeout <= 600:
         raise SystemExit("--timeout must be greater than 0 and at most 600 seconds")
     if args.command == "selftest":

@@ -20,6 +20,7 @@ from advisor_runtime import assumptions as assumptions_module
 from advisor_runtime.market_anchor import convert_snapshot, default_yardage_sd
 
 TOUCHDOWN_STAT = "td"
+RECEPTION_STAT = "rec"
 
 MARKET_ANCHOR_KEY = "market_anchor"
 BLEND_KEY = "market_anchor_blend"
@@ -38,12 +39,15 @@ BLEND_KEY = "market_anchor_blend"
 #      (this ticket) adds "td" back as an OPTIONAL stat instead -- see
 #      resolve_touchdown_scoring/optional_stats_for below -- so it
 #      contributes when the market has it without being required. Reception
-#      counts (rec) and WR/QB secondary rushing volume remain out of scope,
-#      left for a follow-up ticket -- see STATUS.md's T2e Decision Log and
-#      next-prompt.
-# anchor_fp is therefore a yardage+TD partial-scoring approximation by
-# construction (see docs/MARKET_ANCHOR.md), not a full replica of league
-# scoring (still missing receptions, fumbles, two-point conversions).
+#      counts (rec) were out of scope for T2e/T2d; a later session (see
+#      STATUS.md) added "rec" as an OPTIONAL stat the same way, for RB/WR/TE.
+#      WR/QB secondary rushing volume remains out of scope.
+# anchor_fp is therefore a yardage+TD(+reception, RB/WR/TE) partial-scoring
+# approximation by construction (see docs/MARKET_ANCHOR.md), still not a
+# full replica of league scoring -- fumbles and two-point conversions are
+# still never priced; see unmodeled_scoring_components below for explicit,
+# per-player disclosure of exactly which real scoring components that is,
+# rather than leaving a reader to notice the gap by omission.
 # K is excluded outright -- Sleeper kicking uses nonlinear per-distance
 # field-goal buckets with no single linear "kick_pts" coefficient, which
 # this linear converter cannot model (market_anchor.py: "Nonlinear bonuses
@@ -58,7 +62,70 @@ REQUIRED_STATS_BY_POSITION = {
 # via rushing, since QBs essentially never receive); "td" is therefore
 # offered as optional to all four, gated only by whether the league's own
 # scoring makes it fairly priceable (see resolve_touchdown_scoring).
-OPTIONAL_STATS_BY_POSITION = {pos: [TOUCHDOWN_STAT] for pos in REQUIRED_STATS_BY_POSITION}
+#
+# Follow-up ticket (receptions): SportsGameOdds already posts a two-sided
+# "receiving_receptions" market (market_sources.SPORTS_GAME_ODDS_STATS ->
+# "rec") and market_anchor.stat_distribution already prices any two-sided
+# count market via the same Poisson branch it uses for every other count
+# stat -- "rec" needs no new SD table (it doesn't end with "_yd", so
+# convert_snapshot never requires a yardage_sd entry for it) and no scoring
+# synthesis like "td" needed (the market's own stat key already equals the
+# league's own linear "rec" coefficient -- full PPR here, so this is never a
+# guessed weight). Offered as optional, never required, so a player-week
+# with no posted reception market still gets a real yardage(+TD) anchor
+# rather than nulling out (see reception_scoring_usable/optional_stats_for).
+# QB excluded: QBs essentially never catch passes, so pricing "rec" for them
+# would be a market this repo has never observed, not a modeled component.
+OPTIONAL_STATS_BY_POSITION = {
+    "QB": [TOUCHDOWN_STAT],
+    "RB": [TOUCHDOWN_STAT, RECEPTION_STAT],
+    "WR": [TOUCHDOWN_STAT, RECEPTION_STAT],
+    "TE": [TOUCHDOWN_STAT, RECEPTION_STAT],
+}
+
+# Real full-PPR scoring components this converter still does not price for
+# anyone, regardless of market coverage -- no SGO market exists for these at
+# all, so they can never degrade-gracefully like "td"/"rec"; they are simply
+# absent from anchor_fp. Reported explicitly (see unmodeled_scoring_
+# components) rather than left for a reader to notice by omission. Keyed by
+# the real Sleeper scoring-settings stat name, so a component whose league
+# coefficient is actually zero is correctly not reported as "unmodeled" (it
+# wouldn't move anchor_fp even if priced).
+UNMODELED_STATS_BY_POSITION = {
+    "QB": ["pass_2pt", "rush_2pt", "fum_lost"],
+    "RB": ["rush_2pt", "rec_2pt", "fum_lost"],
+    "WR": ["rec_2pt", "rush_2pt", "fum_lost"],
+    "TE": ["rec_2pt", "fum_lost"],
+}
+
+
+def unmodeled_scoring_components(
+    scoring: dict[str, float], players: list[dict[str, Any]]
+) -> dict[str, list[str]]:
+    """{pid: [stat, ...]} -- real league-scored components this converter
+    never prices for that position, restricted to ones the league actually
+    assigns a nonzero weight (a zero-weighted stat isn't a modeling gap).
+    Never mutates inputs; a position outside UNMODELED_STATS_BY_POSITION
+    (K/DEF) is simply absent, not zero-filled."""
+    out: dict[str, list[str]] = {}
+    for player in players:
+        pos = player.get("pos")
+        candidates = UNMODELED_STATS_BY_POSITION.get(pos, [])
+        present = sorted(stat for stat in candidates if scoring.get(stat))
+        if present:
+            out[str(player["pid"])] = present
+    return out
+
+
+def reception_scoring_usable(scoring: dict[str, float]) -> bool:
+    """Whether the league's own "rec" coefficient exists and is numeric.
+
+    Unlike touchdown_stat, "rec" needs no cross-stat agreement check --
+    SportsGameOdds' reception market key already matches the real Sleeper
+    scoring key one-to-one, so there is no ambiguous aggregate to resolve.
+    """
+    value = scoring.get(RECEPTION_STAT)
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def resolve_touchdown_scoring(scoring: dict[str, float]) -> tuple[dict[str, float], bool]:
@@ -85,15 +152,20 @@ def resolve_touchdown_scoring(scoring: dict[str, float]) -> tuple[dict[str, floa
 
 
 def optional_stats_for(
-    players: list[dict[str, Any]], td_usable: bool
+    players: list[dict[str, Any]], td_usable: bool, rec_usable: bool = False
 ) -> dict[str, list[str]]:
-    if not td_usable:
+    """rec_usable defaults False so every pre-reception caller (T2e's own
+    tests, T2f, T5's default `run_backtest` param) is byte-for-byte
+    unchanged unless it opts in -- same discipline T2e used for td_usable."""
+    enabled = {stat for stat, usable in ((TOUCHDOWN_STAT, td_usable), (RECEPTION_STAT, rec_usable)) if usable}
+    if not enabled:
         return {}
-    return {
-        str(player["pid"]): list(OPTIONAL_STATS_BY_POSITION[player["pos"]])
-        for player in players
-        if player.get("pos") in OPTIONAL_STATS_BY_POSITION
-    }
+    result = {}
+    for player in players:
+        stats = [stat for stat in OPTIONAL_STATS_BY_POSITION.get(player.get("pos"), []) if stat in enabled]
+        if stats:
+            result[str(player["pid"])] = stats
+    return result
 
 
 def _parse_season_week(value: Any) -> int | None:
@@ -196,7 +268,8 @@ def compute_projection_sources(
     provider_names, event_weeks = build_identity_inputs(line_rows)
     required_stats = required_stats_for(players)
     resolved_scoring, td_usable = resolve_touchdown_scoring(scoring)
-    optional_stats = optional_stats_for(players, td_usable)
+    rec_usable = reception_scoring_usable(scoring)
+    optional_stats = optional_stats_for(players, td_usable, rec_usable)
     default_sd = build_default_yardage_sd(players) if use_default_yardage_sd else {}
     explicit_sd = yardage_sd or {}
     resolved_sd = {**default_sd, **explicit_sd}
@@ -254,6 +327,15 @@ def compute_projection_sources(
             # required-stat gap always take priority (set by convert_snapshot).
             "confidence": anchor_row["confidence"],
             "optional_missing": anchor_row["optional_missing"],
+            # Component-level disclosure (this session's fix): the actual
+            # per-stat market-implied value that summed into anchor_fp, so a
+            # caller (T5's backtest, in particular) can compare the market's
+            # OWN implied stat line against a realized stat line component by
+            # component -- distinguishing "the market was wrong about yards"
+            # from "our blend/converter logic is wrong given a correct
+            # anchor" -- rather than only ever comparing final fantasy-point
+            # totals, which conflates the two.
+            "implied_stats": dict(anchor_row["implied_stats"]),
         }
     return {
         "sources": sources,
@@ -265,6 +347,15 @@ def compute_projection_sources(
         # see resolve_touchdown_scoring. False means every anchor this run
         # is yardage-only regardless of market coverage, not a per-player gap.
         "td_scoring_usable": td_usable,
+        # Same idea for receptions: whether the league's own "rec" coefficient
+        # was numeric this run. False means "rec" was never offered as an
+        # optional stat to anyone, regardless of market coverage.
+        "rec_scoring_usable": rec_usable,
+        # This session's fix: real full-PPR components (fumbles, 2pt
+        # conversions) this converter still never prices, regardless of
+        # market coverage -- explicit disclosure so a caller cannot mistake
+        # a yardage+TD+reception anchor for a complete scoring replica.
+        "unmodeled_scoring_components": unmodeled_scoring_components(scoring, players),
         # T2f: the scoring dict actually used above (with "td" merged in when
         # usable), so a caller extending market_anchor_blend with
         # apply_consensus_fallback prices any stat-specific assumption with

@@ -255,5 +255,83 @@ class MarketLabelTests(unittest.TestCase):
         self.assertEqual(packet["warnings"][0], market["coverage_warnings"][0])
 
 
+class ClassifyEventStatusTests(unittest.TestCase):
+    def test_completed_ended_or_finalized_is_final(self):
+        for key in ("completed", "ended", "finalized"):
+            with self.subTest(key=key):
+                self.assertEqual(market_sources.classify_event_status({key: True}), "final")
+
+    def test_present_but_not_done_is_not_final(self):
+        self.assertEqual(
+            market_sources.classify_event_status({"completed": False, "startsAt": "x"}),
+            "not_final",
+        )
+
+    def test_missing_status_is_unknown(self):
+        self.assertEqual(market_sources.classify_event_status(None), "unknown")
+        self.assertEqual(market_sources.classify_event_status({}), "unknown")
+
+
+class FetchEventStatusTests(unittest.TestCase):
+    def test_missing_api_key_returns_empty_never_a_guess(self):
+        with mock.patch.object(market_sources, "load_secrets", return_value={}):
+            self.assertEqual(market_sources.fetch_event_status({"evt1"}), {})
+
+    def test_empty_event_ids_short_circuits_without_a_request(self):
+        with mock.patch.object(
+            market_sources.requests, "get",
+            side_effect=AssertionError("must not fetch for an empty request"),
+        ):
+            self.assertEqual(market_sources.fetch_event_status(set()), {})
+
+    def test_fresh_fetch_filters_to_requested_events_only(self):
+        payload = {
+            "data": [
+                {"eventID": "evt1", "status": {"completed": True}},
+                {"eventID": "evt2", "status": {"completed": False}},
+            ]
+        }
+        response = mock.Mock()
+        response.json.return_value = payload
+        with (
+            mock.patch.object(market_sources, "load_secrets", return_value={
+                "SPORTSGAMEODDS_API_KEY": "fixture",
+            }),
+            mock.patch.object(market_sources, "_cache_read", return_value=None),
+            mock.patch.object(market_sources, "_cache_write"),
+            mock.patch.object(market_sources.requests, "get", return_value=response),
+        ):
+            result = market_sources.fetch_event_status({"evt1"})
+        self.assertEqual(result, {"evt1": {"completed": True}})
+
+    def test_provider_error_returns_empty_never_a_guess(self):
+        with (
+            mock.patch.object(market_sources, "load_secrets", return_value={
+                "SPORTSGAMEODDS_API_KEY": "fixture",
+            }),
+            mock.patch.object(market_sources, "_cache_read", return_value=None),
+            mock.patch.object(
+                market_sources.requests, "get",
+                side_effect=market_sources.requests.RequestException("boom"),
+            ),
+        ):
+            self.assertEqual(market_sources.fetch_event_status({"evt1"}), {})
+
+    def test_cache_hit_makes_no_request(self):
+        payload = {"data": [{"eventID": "evt1", "status": {"ended": True}}]}
+        with (
+            mock.patch.object(market_sources, "load_secrets", return_value={
+                "SPORTSGAMEODDS_API_KEY": "fixture",
+            }),
+            mock.patch.object(market_sources, "_cache_read", return_value=payload),
+            mock.patch.object(
+                market_sources.requests, "get",
+                side_effect=AssertionError("cache hit must not fetch"),
+            ),
+        ):
+            result = market_sources.fetch_event_status({"evt1"})
+        self.assertEqual(result, {"evt1": {"ended": True}})
+
+
 if __name__ == "__main__":
     unittest.main()
