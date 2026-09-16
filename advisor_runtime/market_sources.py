@@ -13,6 +13,7 @@ import os
 import statistics
 import time
 import unicodedata
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -22,6 +23,7 @@ import requests
 
 HEADERS = {"User-Agent": "Reeve-Fantasy-Advisor/2.0", "Accept": "application/json"}
 CACHE_DIR = Path(__file__).resolve().parent / "data" / "provider_cache"
+MARKET_HISTORY_DIR = Path(__file__).resolve().parent / "data" / "market_history" / "sports_game_odds"
 SPORTS_GAME_ODDS_STATS = {
     "passing_yards": "pass_yd",
     "passing_touchdowns": "pass_td",
@@ -138,6 +140,56 @@ def _cache_write(name: str, payload: Any) -> None:
     )
 
 
+def _write_sports_game_odds_snapshot(payload: Any, fetched_at_utc: str) -> dict[str, Any]:
+    """Preserve raw posted lines before player selection or book filtering.
+
+    The caller supplies the engine's HTTP fetch time, never a feed timestamp.
+    Each fetch creates a new file exclusively; history is never replaced/pruned.
+    """
+    rows: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for event in payload.get("data") or []:
+        event_id = str(event.get("eventID") or "")
+        for odd in (event.get("odds") or {}).values():
+            market = SPORTS_GAME_ODDS_STATS.get(str(odd.get("statID") or ""))
+            if (
+                odd.get("periodID") != "game"
+                or odd.get("betTypeID") != "ou"
+                or odd.get("sideID") != "over"
+                or not odd.get("playerID")
+                or not market
+            ):
+                continue
+            player_id = str(odd["playerID"])
+            for book, raw in (odd.get("byBookmaker") or {}).items():
+                line = _number(raw.get("overUnder"))
+                if raw.get("available") is False or line is None:
+                    continue
+                key = (event_id, player_id, str(book), market)
+                rows[key] = {
+                    "source": "SportsGameOdds",
+                    "event_id": event_id,
+                    "player_id": player_id,
+                    "book": str(book),
+                    "market": market,
+                    "line": line,
+                    "fetched_at_utc": fetched_at_utc,
+                }
+    MARKET_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = fetched_at_utc.replace(":", "").replace("+0000", "Z")
+    path = MARKET_HISTORY_DIR / f"{stamp}-{uuid.uuid4().hex}.jsonl"
+    with path.open("x", encoding="utf-8", newline="\n") as handle:
+        for row in rows.values():
+            handle.write(json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    return {
+        "status": "written",
+        "path": str(path),
+        "rows": len(rows),
+        "fetched_at_utc": fetched_at_utc,
+    }
+
+
 def source_configuration() -> dict[str, bool]:
     secrets = load_secrets()
     return {
@@ -204,7 +256,7 @@ def _book_summary(books: list[dict[str, Any]], source: str) -> dict[str, Any]:
     }
 
 
-def sports_game_odds(players: list[dict[str, Any]]) -> dict[str, Any]:
+def sports_game_odds(players: list[dict[str, Any]], *, force_refresh: bool = False) -> dict[str, Any]:
     secrets = load_secrets()
     api_key = secrets.get("SPORTSGAMEODDS_API_KEY")
     if not api_key:
@@ -224,8 +276,9 @@ def sports_game_odds(players: list[dict[str, Any]]) -> dict[str, Any]:
             "limit": "24",
         }
     )
-    payload = _cache_read("sportsgameodds_nfl_props.json", 10 * 60)
+    payload = None if force_refresh else _cache_read("sportsgameodds_nfl_props.json", 10 * 60)
     cache_label = "local_10m" if payload is not None else "fresh"
+    line_snapshot = {"status": "cache_hit_no_snapshot"}
     if payload is None:
         try:
             response = requests.get(
@@ -235,7 +288,6 @@ def sports_game_odds(players: list[dict[str, Any]]) -> dict[str, Any]:
             )
             response.raise_for_status()
             payload = response.json()
-            _cache_write("sportsgameodds_nfl_props.json", payload)
         except (requests.RequestException, ValueError) as exc:
             return {
                 "status": "provider_error",
@@ -243,6 +295,9 @@ def sports_game_odds(players: list[dict[str, Any]]) -> dict[str, Any]:
                 "error": type(exc).__name__,
                 "players": {},
             }
+        fetched_at_utc = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+        line_snapshot = _write_sports_game_odds_snapshot(payload, fetched_at_utc)
+        _cache_write("sportsgameodds_nfl_props.json", payload)
 
     grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
     meta: dict[tuple[str, str], dict[str, Any]] = {}
@@ -341,6 +396,7 @@ def sports_game_odds(players: list[dict[str, Any]]) -> dict[str, Any]:
         "status": "live" if result else "no_posted_lines",
         "source": "SportsGameOdds",
         "cache": cache_label,
+        "line_snapshot": line_snapshot,
         "refreshed_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "players": result,
     }
@@ -558,8 +614,10 @@ def underdog(players: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def focused_market_packet(players: list[dict[str, Any]], deep: bool = False) -> dict[str, Any]:
-    primary = sports_game_odds(players)
+def focused_market_packet(
+    players: list[dict[str, Any]], deep: bool = False, *, force_refresh: bool = False
+) -> dict[str, Any]:
+    primary = sports_game_odds(players, force_refresh=force_refresh)
     validator = the_odds_api(players, enabled=deep)
     by_player: dict[str, Any] = {}
     for player in players:
@@ -580,6 +638,7 @@ def focused_market_packet(players: list[dict[str, Any]], deep: bool = False) -> 
             "independent_check": validator.get("players", {}).get(key),
         }
     return {
+        "line_snapshot": primary.get("line_snapshot"),
         "source_status": {
             "sports_game_odds": primary.get("status"),
             "pickem_boards": "manual_browser_on_request",

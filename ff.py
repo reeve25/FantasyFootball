@@ -64,6 +64,8 @@ def parser():
         q = sub.add_parser(command)
         q.add_argument("--offline", action="store_true")
         q.add_argument("--market", action="store_true", help="Add focused current sportsbook evidence")
+        if command in {"packet", "trade"}:
+            q.add_argument("--market-refresh", action="store_true", help="Fetch SportsGameOdds now, bypassing its 10-minute cache; implies --market")
         q.add_argument("--deep", action="store_true", help="Also use configured metered odds check")
         if command == "packet":
             q.add_argument("question", nargs="+")
@@ -157,11 +159,14 @@ def worker(args):
         from advisor_runtime.trade_search import discover
         packet = discover(current, manager=args.manager, limit=args.limit, max_candidates=args.candidates)
         save(packet)
-    if (args.market or args.deep) and args.command != "discover":
+    market_refresh = getattr(args, "market_refresh", False)
+    if (args.market or args.deep or market_refresh) and args.command != "discover":
         focus = [current["players"][pid] for pid in set(terms["give_ids"] + terms["get_ids"])] if terms else a.match_players(question, current)
         if focus:
             from advisor_runtime.market_sources import focused_market_packet
-            packet["market_evidence"] = focused_market_packet(focus, deep=args.deep)
+            packet["market_evidence"] = focused_market_packet(
+                focus, deep=args.deep, force_refresh=market_refresh
+            )
             packet["market_status"] = "checked; inspect source coverage and timestamps"
             save(packet)
 
