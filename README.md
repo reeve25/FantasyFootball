@@ -1,6 +1,6 @@
 # Fantasy Football Advisor
 
-> **Archived (2026-09-18).** Superseded by a narrower trade-arbitrage tool. Kept as a reference for the forecasting and evaluation work below.
+> **Finished project.** The forecasting and evaluation work is no longer maintained.
 
 A command-line decision engine for a 12-team PPR redraft league. It pulls live league state from the Sleeper API,
 blends public projections with market signals, and answers questions like "should I trade X for Y?" with an evidence packet
