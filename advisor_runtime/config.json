@@ -1,6 +1,6 @@
 {
   "league_id": "YOUR_SLEEPER_LEAGUE_ID",
-  "my_roster_id": 0,
+  "my_roster_id": 1,
   "snapshot_ttl_minutes": 360,
   "season_end_week": 17,
   "playoff_weeks": [

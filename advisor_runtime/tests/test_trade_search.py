@@ -10,7 +10,10 @@ from advisor_runtime.tests.test_advisor_v2 import fixture_snapshot
 class TradeDiscoveryTests(unittest.TestCase):
     def snapshot(self, opponent_ids=('breece', 'tee')):
         snapshot = fixture_snapshot()
-        mine = next(row for row in snapshot['rosters'] if row['roster_id'] == 9)
+        mine = next(
+            row for row in snapshot['rosters']
+            if row['roster_id'] == trade_search.a.MY_ROSTER_ID
+        )
         other = next(row for row in snapshot['rosters'] if row['roster_id'] == 4)
         mine['player_ids'] = ['jayden']
         other['player_ids'] = list(opponent_ids)
