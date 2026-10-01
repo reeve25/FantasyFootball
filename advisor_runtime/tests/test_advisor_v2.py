@@ -22,6 +22,7 @@ import advisor  # noqa: E402  (the runtime path must be selected first)
 
 
 STARTER_SLOTS = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "FLEX", "K", "DEF"]
+MY_ROSTER_ID = advisor.MY_ROSTER_ID
 
 
 def _player(
@@ -36,7 +37,7 @@ def _player(
     previous_projection_pg: float | None = None,
     projection_change_pg: float | None = None,
 ) -> dict:
-    owner_names = {9: "Reeve", 4: "Gridiron Gods", 7: "Sunday Scaries"}
+    owner_names = {MY_ROSTER_ID: "Reeve", 4: "Gridiron Gods", 7: "Sunday Scaries"}
     weekly_points = {} if week_points is None else {"1": week_points, "15": week_points + 0.4}
     return {
         "pid": pid,
@@ -74,25 +75,25 @@ def fixture_snapshot() -> dict:
     """Return one complete, intentionally small schema-v2 league snapshot."""
     players = {
         # Reeve's submitted ten starters.
-        "qb": _player("qb", "Trevor Lawrence", "QB", "JAX", 9, 17.8, 17.8),
+        "qb": _player("qb", "Trevor Lawrence", "QB", "JAX", MY_ROSTER_ID, 17.8, 17.8),
         "rb1": _player(
-            "rb1", "Travis Etienne", "RB", "JAX", 9, 15.1, 15.1,
+            "rb1", "Travis Etienne", "RB", "JAX", MY_ROSTER_ID, 15.1, 15.1,
             previous_projection_pg=17.6, projection_change_pg=-2.5,
         ),
-        "rb2": _player("rb2", "Javonte Williams", "RB", "DAL", 9, 15.5, 15.5),
-        "wr1": _player("wr1", "Drake London", "WR", "ATL", 9, 15.8, 15.8),
-        "wr2": _player("wr2", "Davante Adams", "WR", "LAR", 9, 12.3, 12.3),
-        "te": _player("te", "Colston Loveland", "TE", "CHI", 9, 14.2, 14.2),
-        "flex1": _player("flex1", "David Montgomery", "RB", "HOU", 9, 13.8, 13.8),
+        "rb2": _player("rb2", "Javonte Williams", "RB", "DAL", MY_ROSTER_ID, 15.5, 15.5),
+        "wr1": _player("wr1", "Drake London", "WR", "ATL", MY_ROSTER_ID, 15.8, 15.8),
+        "wr2": _player("wr2", "Davante Adams", "WR", "LAR", MY_ROSTER_ID, 12.3, 12.3),
+        "te": _player("te", "Colston Loveland", "TE", "CHI", MY_ROSTER_ID, 14.2, 14.2),
+        "flex1": _player("flex1", "David Montgomery", "RB", "HOU", MY_ROSTER_ID, 13.8, 13.8),
         "flex2": _player(
-            "flex2", "Jaxon Smith-Njigba", "WR", "SEA", 9, 19.7, 19.7,
+            "flex2", "Jaxon Smith-Njigba", "WR", "SEA", MY_ROSTER_ID, 19.7, 19.7,
             previous_projection_pg=18.5, projection_change_pg=1.2,
         ),
-        "k": _player("k", "Jake Bates", "K", "DET", 9, 7.2, 7.2),
-        "def": _player("def", "Jacksonville Jaguars", "DEF", "JAX", 9, 9.5, 9.5),
+        "k": _player("k", "Jake Bates", "K", "DET", MY_ROSTER_ID, 7.2, 7.2),
+        "def": _player("def", "Jacksonville Jaguars", "DEF", "JAX", MY_ROSTER_ID, 9.5, 9.5),
         # The similarly named bench player is critical to the exact-name tests.
-        "jayden": _player("jayden", "Jayden Higgins", "WR", "HOU", 9, 8.2, 8.2),
-        "benchqb": _player("benchqb", "Bo Nix", "QB", "DEN", 9, 14.0, 14.0),
+        "jayden": _player("jayden", "Jayden Higgins", "WR", "HOU", MY_ROSTER_ID, 8.2, 8.2),
+        "benchqb": _player("benchqb", "Bo Nix", "QB", "DEN", MY_ROSTER_ID, 14.0, 14.0),
         # Other rosters.
         "tee": _player(
             "tee", "Tee Higgins", "WR", "CIN", 4, 16.4, 16.4,
@@ -114,7 +115,7 @@ def fixture_snapshot() -> dict:
     ]
     rosters = [
         {
-            "roster_id": 9,
+            "roster_id": MY_ROSTER_ID,
             "manager": "Reeve",
             "player_ids": my_ids,
             "starter_ids": my_ids[:10],
@@ -169,7 +170,7 @@ def fixture_snapshot() -> dict:
             "league_id": "1327873074195886081",
             "season": 2026,
             "current_week": 1,
-            "my_roster_id": 9,
+            "my_roster_id": MY_ROSTER_ID,
             "starter_slots": list(STARTER_SLOTS),
             "starters": "1 QB, 2 RB, 2 WR, 1 TE, 2 FLEX, K, DEF",
             "scoring": "full PPR; four-point passing TD",
@@ -178,7 +179,7 @@ def fixture_snapshot() -> dict:
         "rosters": rosters,
         "power_rankings": [
             {"rid": 4, "manager": "Gridiron Gods", "rank": 1, "lineup_pg": 126.2},
-            {"rid": 9, "manager": "Reeve", "rank": 2, "lineup_pg": 124.8},
+            {"rid": MY_ROSTER_ID, "manager": "Reeve", "rank": 2, "lineup_pg": 124.8},
             {"rid": 7, "manager": "Sunday Scaries", "rank": 3, "lineup_pg": 119.1},
         ],
         "waiver_top": {
@@ -243,7 +244,7 @@ def fixture_live_context(snapshot: dict | None = None) -> dict:
         "starter_slots": list(STARTER_SLOTS),
         "roster_positions": list(STARTER_SLOTS) + ["BN"] * 5 + ["IR"],
         "my_roster": {
-            "roster_id": 9,
+            "roster_id": MY_ROSTER_ID,
             "manager": "Reeve",
             "player_ids": list(snapshot["rosters"][0]["player_ids"]),
             "starter_ids": starter_ids,
@@ -362,7 +363,9 @@ def fixture_twelve_team_league() -> tuple[dict, dict]:
         "starter_slots": list(STARTER_SLOTS),
         "roster_positions": list(STARTER_SLOTS) + ["BN"] * 5 + ["IR"],
         "rosters": live_rosters,
-        "my_roster": copy.deepcopy(live_rosters[8]),
+        "my_roster": copy.deepcopy(
+            next(row for row in live_rosters if row["roster_id"] == MY_ROSTER_ID)
+        ),
         "owner_by_player": owner_by_player,
         "projection_by_player": {},
         "current_lineup": [],
@@ -411,7 +414,7 @@ class MatchingAndIntentTests(unittest.TestCase):
                 self.assertEqual(advisor.classify_intent(question, self.snapshot), expected)
 
     def test_resolve_trade_from_conversational_phrasing(self):
-        # London on roster 9, Higgins on roster 4
+        # London is on the configured roster, Higgins on roster 4.
         trade1 = advisor.resolve_trade_from_question(self.snapshot, "Drake London for Tee Higgins")
         self.assertIsNotNone(trade1)
         self.assertEqual(trade1["give"], ["Drake London"])
@@ -515,9 +518,9 @@ class TradeSafetyTests(unittest.TestCase):
             return row
 
         players = {
-            "my_qb": player("my_qb", "My Quarterback", "QB", 9, 10.0),
-            "give": player("give", "Give Runner", "RB", 9, 10.0),
-            "give_ir": player("give_ir", "IR Receiver", "WR", 9, 0.0),
+            "my_qb": player("my_qb", "My Quarterback", "QB", MY_ROSTER_ID, 10.0),
+            "give": player("give", "Give Runner", "RB", MY_ROSTER_ID, 10.0),
+            "give_ir": player("give_ir", "IR Receiver", "WR", MY_ROSTER_ID, 0.0),
             "their_qb": player(
                 "their_qb", "Their Quarterback", "QB", 4, 9.0
             ),
@@ -545,7 +548,7 @@ class TradeSafetyTests(unittest.TestCase):
             "players": players,
             "rosters": [
                 {
-                    "roster_id": 9,
+                    "roster_id": MY_ROSTER_ID,
                     "manager": "Reeve",
                     "player_ids": ["my_qb", "give", "give_ir"],
                     "starter_ids": ["my_qb", "give"],
@@ -659,7 +662,7 @@ class TradeSafetyTests(unittest.TestCase):
             {row["roster_id"] for row in packet["involved_rosters"]},
             {4, 7},
         )
-        self.assertNotIn(9, {
+        self.assertNotIn(MY_ROSTER_ID, {
             row["roster_id"] for row in packet["involved_rosters"]
         })
         # This fixture has no verified provider timestamps. Perspective
@@ -674,12 +677,12 @@ class TradeSafetyTests(unittest.TestCase):
             "give": ["Get Receiver"],
             "get": ["Give Runner"],
             "perspective_rid": 4,
-            "other_rid": 9,
+            "other_rid": MY_ROSTER_ID,
             "terms_explicit": True,
         }
         result = advisor.evaluate_trade(snapshot, terms)
         self.assertEqual(result["perspective_roster_id"], 4)
-        self.assertEqual(result["counterparty_roster_id"], 9)
+        self.assertEqual(result["counterparty_roster_id"], MY_ROSTER_ID)
         self.assertIsNotNone(result["perspective_delta_pg"])
         self.assertIsNotNone(result["counterparty_delta_pg"])
         self.assertNotIn("my_delta_pg", result)
